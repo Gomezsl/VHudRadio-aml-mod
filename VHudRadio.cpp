@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.9.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.10.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,15 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.10: LECTURA PERSISTENTE DE LA ENTIDAD DE AUDIO
+// - La v2.9 SI registro todo y NO se cerro: 3 entradas, escaneo completo.
+//   El candidato 0x458 es la entidad de audio (estable por vehiculo, zona
+//   de ajustes en +0x90..0xAF, byte 0x9B = 0 = radio civil en un carro).
+//   Pero en la entrada 1 (otro carro) el puntero 0x458 no aparecia todavia:
+//   puede no estar puesto en el primer frame al entrar. Ahora se reintenta
+//   cada frame hasta que aparece, y se registra RadioType (0x9B) y radioID
+//   (0x9A). Se prueban 0x458 y 0x1B0 (los dos apuntaron al mismo objeto).
+//   Aun no bloquea nada: falta una bici para confirmar que rt=-1 o 3.
 // v2.9: ESCANEO SEGURO (mincore) - LA v2.8 CERRO EL JUEGO
 // - La v2.8 se cerro (SIGSEGV en libVHudRadio64.so) al entrar a un auto de
 //   policia: el escaneo leyo un valor (0x23F800000) que "parecia" un puntero
@@ -209,9 +218,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.9.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.10.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.9.0-beta"
+#define VHUDRADIO_VERSION "2.10.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -998,6 +1007,32 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             cands++;
         }
         if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x500");
+    }
+    // v2.10: lectura persistente de la entidad de audio - el puntero en
+    // veh+0x458 puede no estar puesto en el primer frame al entrar (la v2.9
+    // no lo vio en la entrada 1, un carro distinto); se reintenta cada frame
+    // hasta que aparece, y se registra RadioType (0x9B) y radioID (0x9A).
+    // La v2.9 ya vio que en un carro rt=0 (civil) en 0x9B; falta la bici para
+    // confirmar. Aun no bloquea nada.
+    {
+        static void* lastVeh = nullptr;
+        static bool audioLogged = false;
+        if (!g_inVehicle) { lastVeh = nullptr; audioLogged = false; }
+        else if (veh && veh != lastVeh) { lastVeh = veh; audioLogged = false; }
+        if (g_inVehicle && veh && !audioLogged) {
+            int aoffs[2] = {0x458, 0x1B0};
+            for (int i = 0; i < 2; i++) {
+                void* aud = *(void**)((char*)veh + aoffs[i]);
+                if (!PlausiblePtr((uintptr_t)aud)) continue;
+                if (!IsMapped(aud)) continue;
+                if (!IsMapped((char*)aud + 0x9A) || !IsMapped((char*)aud + 0x9B)) continue;
+                int rt = (int)*(signed char*)((char*)aud + 0x9B);
+                int rid = (int)*(signed char*)((char*)aud + 0x9A);
+                Log("  audio(0x%X): rt(0x9B)=%d rid(0x9A)=%d", aoffs[i], rt, rid);
+                audioLogged = true;
+                break;
+            }
+        }
     }
     // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
     // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
