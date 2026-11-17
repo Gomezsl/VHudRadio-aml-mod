@@ -261,7 +261,292 @@ static void LoadHornPos() {
 // anillo=0,210,255 (color del anillo de seleccion, 0..255)
 struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; };
 static WheelCfg g_cfg;
-static bool g_settings = false;   // v2.3: panel de personalizacion - controles grandes y legibles al tacto
+static bool g_settings = false;   // v2.2: panel de personalizacion abierto
+static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
+static std::string CfgPath() { return g_gameFilesDir + "/configs/VHudRadio.ini"; }
+static void SaveCfg() {
+    mkdir((g_gameFilesDir + "/configs").c_str(), 0777);
+    FILE* f = fopen(CfgPath().c_str(), "w");
+    if (!f) return;
+    fprintf(f, "[VHudRadio]\n");
+    fprintf(f, "fondo=%d\n", g_cfg.fondo);
+    fprintf(f, "tamano=%d\n", g_cfg.tamano);
+    fprintf(f, "anillo=%d,%d,%d\n", g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
+    fclose(f);
+}
+static void LoadCfg() {
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
+    FILE* f = fopen(CfgPath().c_str(), "r");
+    if (!f) { SaveCfg(); return; }  // no existe: crearlo con los valores por defecto
+    char line[256];
+    while (fgets(line, sizeof line, f)) {
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char* k = line;
+        while (*k == ' ' || *k == '\t') k++;
+        size_t kl = strlen(k);
+        while (kl > 0 && (k[kl-1] == ' ' || k[kl-1] == '\t' || k[kl-1] == '\n' || k[kl-1] == '\r')) k[--kl] = 0;
+        const char* v = eq + 1;
+        if (strcmp(k, "fondo") == 0) g_cfg.fondo = atoi(v);
+        else if (strcmp(k, "tamano") == 0) g_cfg.tamano = atoi(v);
+        else if (strcmp(k, "anillo") == 0) {
+            int r = 0, g = 0, b = 0;
+            if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.ringR = r; g_cfg.ringG = g; g_cfg.ringB = b; }
+        }
+    }
+    fclose(f);
+    if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
+    if (g_cfg.tamano < 25) g_cfg.tamano = 25; if (g_cfg.tamano > 45) g_cfg.tamano = 45;
+    if (g_cfg.ringR < 0) g_cfg.ringR = 0; if (g_cfg.ringR > 255) g_cfg.ringR = 255;
+    if (g_cfg.ringG < 0) g_cfg.ringG = 0; if (g_cfg.ringG > 255) g_cfg.ringG = 255;
+    if (g_cfg.ringB < 0) g_cfg.ringB = 0; if (g_cfg.ringB > 255) g_cfg.ringB = 255;
+}
+
+static std::string g_vhudDir;   // /storage/emulated/0/vhud
+static int g_current = 1;       // estacion actual conocida (1..13)
+static int g_selected = 1;      // segmento bajo el dedo mientras la rueda esta abierta
+static bool g_open = false;
+static bool g_btnPending = false;  // v2.1: un toque al boton flotante esperando (siguiente estacion si no hay segundo toque)
+static std::chrono::steady_clock::time_point g_btnPendingAt;
+static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
+static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
+
+// v2.2: geometria de la rueda segun los ajustes (fondo/tamano/anillo)
+static float WheelR(float H) { return H * g_cfg.tamano / 100.0f; }
+static float WheelRi(float H) { return WheelR(H) * 0.83f; }
+static float WheelIconS(float H) { return WheelR(H) * 0.175f; }
+static ImU32 RingColor() { return IM_COL32(g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, 255); }
+
+// v2.3: segmento bajo un punto (13 segmentos; apagar va arriba del anillo, no en el centro)
+static int SegmentAt(float x, float y, float W, float H) {
+    float dx = x - W*0.5f, dy = y - H*0.5f;
+    float dist = sqrtf(dx*dx + dy*dy);
+    float Ri = WheelRi(H), s = WheelIconS(H);
+    if (dist < Ri - s*1.3f || dist > Ri + s*1.3f) return 0;  // centro o fuera de la rueda
+    float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
+    int seg = (int)(ang / (2*3.14159265f/13.0f)) + 1; if (seg > 13) seg = 13;
+    return seg;
+}
+static bool g_inVehicle = false;
+static void* g_menuManager = nullptr;  // v2.3: global CMenuManager (FrontEndMenuManager)
+static bool g_paused = false;          // v2.3: menu de pausa (o cualquier menu) abierto
+static bool MenuActive() {
+    if (!g_menuManager) return false;
+    return ((const unsigned char*)g_menuManager)[0x5C] != 0;  // m_bMenuActive (plugin-sdk CMenuManager)
+}
+
+// ---- texturas ImGui de los iconos (se crean en el primer frame, con contexto GL) ----
+static GLuint g_tex[14] = {0};  // 1..13 + radio_current en [0] como marco
+static bool g_texTried = false;
+static GLuint LoadPngToGl(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > 4*1024*1024) { fclose(f); return 0; }
+    std::vector<unsigned char> buf((size_t)len);
+    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
+    fclose(f);
+    int w = 0, h = 0, ch = 0;
+    unsigned char* px = stbi_load_from_memory(buf.data(), (int)buf.size(), &w, &h, &ch, 4);
+    if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return 0; }
+    GLint last = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &last);
+    GLuint tex = 0; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)last);
+    stbi_image_free(px);
+    return glGetError() == GL_NO_ERROR ? tex : 0;
+}
+static void LoadRadioTextures() {
+    if (g_texTried) return; g_texTried = true;
+    // v2.1: iconos dentro de files del juego (Android/data/com.rockstargames.gtasa/files/vhud/radio/);
+    // si no estan ahi, se usa la carpeta de antes (/storage/emulated/0/vhud/radio/).
+    std::string dir = g_gameFilesDir + "/vhud/radio";
+    { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/radio"; }
+    Log("carpeta de iconos: %s/ (radio_1.png ... radio_13.png)", dir.c_str());
+    int ok = 0;
+    for (int i = 1; i <= 13; i++) {
+        std::string p = dir + "/radio_" + std::to_string(i) + ".png";
+        g_tex[i] = LoadPngToGl(p);
+        if (g_tex[i]) ok++;
+        Log("  %s radio_%d.png", g_tex[i] ? "ok    " : "FALTA ", i);
+    }
+    g_tex[0] = LoadPngToGl(dir + "/radio_current.png");
+    Log("  %s radio_current.png", g_tex[0] ? "ok    " : "FALTA ");
+    Log("iconos de radio cargados: %d/13 (+marco %s)", ok, g_tex[0] ? "si" : "no");
+    if (ok == 0) Log("  !! sin iconos: copia vhud/radio/ a files del juego o a /storage/emulated/0/vhud/ (ver README)");
+}
+
+// ---- cambiar de estacion: solo con funciones que resolvieron ----
+static void ApplyStation(int id) {
+    if (id < 1 || id > 13) return;
+    // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
+    // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
+    if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
+    else if (g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
+    else if (g_retuneAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio(g_audioEngine, (signed char)id); }
+    else if (g_retuneTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack(g_trackManager, (signed char)id); }
+    else { Log("!! sin Retune/Start con su objeto global: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
+    g_current = id;
+    // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
+    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
+}
+static void RefreshCurrent() {
+    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); if (v >= 1 && v <= 13) g_current = v; return; }
+    if (g_getStationTrack && g_trackManager) { int v = (int)g_getStationTrack(g_trackManager); if (v >= 1 && v <= 13) g_current = v; }
+}
+
+// Abrir/cerrar la rueda con periodo refractario: el doble toque al claxon llega
+// por DOS caminos a la vez (widget 7 y zona tactil) y sin esto la abriria y la
+// cerraria en el mismo instante.
+static void ToggleWheel(const char* why) {
+    static auto lastToggle = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastToggle < std::chrono::milliseconds(600)) return;
+    lastToggle = now;
+    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); PlayClick(false); }
+    else { g_open = false; Log("rueda cerrada por %s", why); }
+}
+
+
+// ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
+static std::mutex g_inMtx;
+struct TouchEv { int kind; float x, y; };
+static std::vector<TouchEv> g_evs;
+static bool g_cap = false;
+static uintptr_t (*Touch_orig)(int, int, int, int);
+static uintptr_t Touch_hook(int type, int idx, int x, int y) {
+    bool down = (type == 2), up = (type == 1 || type == 4);
+    if (idx == 0) {
+        std::lock_guard<std::mutex> lk(g_inMtx);
+        if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
+        else if (g_open || g_cap) { g_evs.push_back({0, (float)x, (float)y}); if (up) g_evs.push_back({2, 0, 0}); }
+    }
+    return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
+}
+
+// ---- dibujo ImGui justo antes de eglSwapBuffers (patron ARCX) ----
+static bool g_inited = false, g_failed = false;
+static EGLBoolean (*Swap_orig)(EGLDisplay, EGLSurface);
+static bool PatchGot(const char* libName, const char* sym, void* repl, void** orig) {
+    struct Ctx { const char* lib; uintptr_t base; const ElfW(Phdr)* ph; int n; } c = {libName, 0, nullptr, 0};
+    dl_iterate_phdr([](struct dl_phdr_info* i, size_t, void* d) -> int {
+        Ctx* x = (Ctx*)d;
+        if (i->dlpi_name && strstr(i->dlpi_name, x->lib)) { x->base = i->dlpi_addr; x->ph = i->dlpi_phdr; x->n = i->dlpi_phnum; return 1; }
+        return 0; }, &c);
+    if (!c.ph) return false;
+    const ElfW(Dyn)* dyn = nullptr;
+    for (int i = 0; i < c.n; i++) if (c.ph[i].p_type == PT_DYNAMIC) dyn = (const ElfW(Dyn)*)(c.base + c.ph[i].p_vaddr);
+    if (!dyn) return false;
+    auto fix = [&](uintptr_t p) { return p < c.base ? p + c.base : p; };
+    const ElfW(Sym)* symtab = nullptr; const char* strtab = nullptr;
+    const ElfW(Rela)* jmprel = nullptr; size_t jmpsz = 0; const ElfW(Rela)* rela = nullptr; size_t relasz = 0;
+    for (; dyn->d_tag != DT_NULL; dyn++) switch (dyn->d_tag) {
+        case DT_SYMTAB: symtab = (const ElfW(Sym)*)fix(dyn->d_un.d_ptr); break;
+        case DT_STRTAB: strtab = (const char*)fix(dyn->d_un.d_ptr); break;
+        case DT_JMPREL: jmprel = (const ElfW(Rela)*)fix(dyn->d_un.d_ptr); break;
+        case DT_PLTRELSZ: jmpsz = dyn->d_un.d_val; break;
+        case DT_RELA: rela = (const ElfW(Rela)*)fix(dyn->d_un.d_ptr); break;
+        case DT_RELASZ: relasz = dyn->d_un.d_val; break;
+        default: break; }
+    if (!symtab || !strtab) return false;
+    auto scan = [&](const ElfW(Rela)* r, size_t bytes) -> bool {
+        if (!r) return false;
+        for (size_t k = 0; k < bytes / sizeof(ElfW(Rela)); k++) {
+            unsigned type = ELF64_R_TYPE(r[k].r_info); unsigned si = ELF64_R_SYM(r[k].r_info);
+            if ((type != 1026 && type != 1025) || si == 0) continue;
+            if (strcmp(strtab + symtab[si].st_name, sym) != 0) continue;
+            void** slot = (void**)(c.base + r[k].r_offset);
+            long pg = sysconf(_SC_PAGESIZE); uintptr_t page = (uintptr_t)slot & ~((uintptr_t)pg - 1);
+            if (mprotect((void*)page, (size_t)pg, PROT_READ | PROT_WRITE) != 0) return false;
+            *orig = *slot; *slot = repl; return true; }
+        return false; };
+    return scan(jmprel, jmpsz) || scan(rela, relasz);
+}
+
+static ImFont* g_fontTitle = nullptr;  // v2.1: letra del centro (Roboto Condensed negrita del sistema)
+static ImFont* g_fontUI = nullptr;  // v2.3: letra del panel (32 px, legible al tacto)
+
+// v2.2: geometria del boton flotante (icono + etiqueta con estacion y genero).
+// El icono va abajo a la derecha y la etiqueta a su izquierda; el toque vale
+// en todo el conjunto (icono o etiqueta).
+static void FloatBtnGeom(float W, float H, ImVec2& iconPos, ImVec2& labelPos, ImVec2& labelSize, float& bs) {
+    bs = H * 0.06f;
+    iconPos = ImVec2(W - bs * 1.15f, H * 0.86f);  // v2.2: mas abajo
+    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
+    float ns = H * 0.022f, ts = H * 0.018f;
+    ImVec2 nsz = font->CalcTextSizeA(ns, FLT_MAX, 0.0f, kStationName[g_current], nullptr);
+    ImVec2 tsz = font->CalcTextSizeA(ts, FLT_MAX, 0.0f, kStationTag[g_current], nullptr);
+    float lw = (nsz.x > tsz.x ? nsz.x : tsz.x) + H * 0.02f;
+    float lh = ns + ts + H * 0.02f;
+    labelSize = ImVec2(lw, lh);
+    labelPos = ImVec2(iconPos.x - H * 0.015f - lw, iconPos.y + bs * 0.5f - lh * 0.5f);
+}
+static bool FloatBtnHit(float x, float y, float W, float H) {
+    ImVec2 ip, lp, ls; float bs;
+    FloatBtnGeom(W, H, ip, lp, ls, bs);
+    if (x >= ip.x && x <= ip.x + bs && y >= ip.y && y <= ip.y + bs) return true;
+    if (x >= lp.x && x <= lp.x + ls.x && y >= lp.y && y <= lp.y + ls.y) return true;
+    return false;
+}
+
+static void DrawWheel(float W, float H) {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
+    // v2.2: boton flotante abajo a la derecha + etiqueta con estacion y genero
+    ImVec2 bp, lp, ls; float bs;
+    FloatBtnGeom(W, H, bp, lp, ls, bs);
+    float ns = H * 0.022f, ts = H * 0.018f;
+    dl->AddRectFilled(lp, ImVec2(lp.x + ls.x, lp.y + ls.y), IM_COL32(0, 0, 0, 140), H * 0.01f);
+    dl->AddText(font, ns, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f), IM_COL32(255,255,255,255), kStationName[g_current]);
+    dl->AddText(font, ts, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f + ns), IM_COL32(200,225,235,230), kStationTag[g_current]);
+    if (g_tex[g_current]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[g_current], bp, ImVec2(bp.x + bs, bp.y + bs));
+    else { dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(30,30,40,220)); }
+    dl->AddCircle(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(255,255,255,200), 0, 2.0f);
+
+    if (!g_open) return;
+    // v2.2: rueda estilo GTA V - 12 logos en circulo + apagar la radio en el centro
+    ImVec2 c(W * 0.5f, H * 0.5f);
+    float R = WheelR(H);
+    float Ri = WheelRi(H);
+    float s = WheelIconS(H);
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, g_cfg.fondo * 255 / 100));  // oscuridad ajustable
+    dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
+    for (int i = 1; i <= 13; i++) {
+        float a0 = -3.14159265f/2 + (i-1) * 2*3.14159265f/13.0f;
+        float a1 = a0 + 2*3.14159265f/13.0f;
+        float am = (a0 + a1) * 0.5f;
+        ImVec2 p(c.x + cosf(am) * Ri, c.y + sinf(am) * Ri);
+        bool sel = (i == g_selected);
+        float si = sel ? s * 1.12f : s;
+        if (g_tex[i]) {
+            ImVec4 tint = sel ? ImVec4(1, 1, 1, 1) : ImVec4(0.55f, 0.55f, 0.55f, 0.75f);
+            dl->AddImage((ImTextureID)(uintptr_t)g_tex[i], ImVec2(p.x-si, p.y-si), ImVec2(p.x+si, p.y+si), ImVec2(0, 0), ImVec2(1, 1), ImColor(tint));
+        } else dl->AddCircleFilled(p, si*0.5f, IM_COL32(255,255,255,120));
+        if (sel) dl->AddCircle(p, si, RingColor(), 48, 3.5f);              // anillo de seleccion (color ajustable)
+        else if (i == g_current) dl->AddCircle(p, si, IM_COL32(255, 255, 255, 220), 48, 2.0f);
+    }
+    // centro: nombre de la estacion seleccionada + genero (estilo GTA V)
+    float nameSize = H * 0.05f, tagSize = H * 0.024f;
+    const char* name = kStationName[g_selected];
+    const char* tag = kStationTag[g_selected];
+    ImVec2 nsz = font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, name, nullptr);
+    ImVec2 tsz = font->CalcTextSizeA(tagSize, FLT_MAX, 0.0f, tag, nullptr);
+    dl->AddText(font, nameSize, ImVec2(c.x - nsz.x*0.5f, c.y - nsz.y*0.5f - H*0.015f), IM_COL32(255,255,255,255), name);
+    dl->AddText(font, tagSize, ImVec2(c.x - tsz.x*0.5f, c.y + nsz.y*0.5f + H*0.005f), IM_COL32(200,225,235,230), tag);
+    // v2.2: marca de vista previa
+    if (g_preview) {
+        const char* pv = "VISTA PREVIA";
+        ImVec2 ps = font->CalcTextSizeA(H * 0.03f, FLT_MAX, 0.0f, pv, nullptr);
+        dl->AddText(font, H * 0.03f, ImVec2(c.x - ps.x*0.5f, H * 0.03f), IM_COL32(255,255,255,230), pv);
+    }
+}
+
+// v2.2: panel de personalizacion (se abre con doble toque al boton flotante)
 static void DrawSettings(float W, float H) {
     ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(W * 0.42f, 0), ImGuiCond_Always);
