@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.9 1.9.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.0 2.0.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,12 +10,18 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.0: DISENO GTA V + SIN CALIBRAR - el claxon ya se detecta por el boton 7
+// (confirmado en el log de la v1.9: 11 aperturas por "boton 7"), asi que el boton
+// "Calibrar claxon" bajo la rueda se quito (la zona tactil queda solo de
+// respaldo). La rueda ahora es estilo GTA V: logos grandes flotando en circulo
+// sin disco, la seleccionada con anillo cian y las demas atenuadas, y en el
+// centro el nombre de la estacion + su genero.
 // v1.9: CLAXON POR BOTON 7 - la sonda de la v1.8 lo confirmo: el byte 84 (0x54)
 // del widget m_pWidgets[7] es su bandera de "tocado" (1 al pulsarlo, 0 al
 // soltarlo; 16/17 volcados con 1 caen a +-1 volcado de un toque al claxon, y
 // el float de 80-83 es el tiempo que lleva pulsado en segundos). Esta version
 // lee esa bandera cada frame y el doble toque al claxon abre/cierra la rueda
-// sin depender de la posicion del boton. La zona tactil + Calibrar quedan
+// sin depender de la posicion del boton. La zona tactil queda
 // como respaldo por si el arreglo no resuelve o el widget 7 es null.
 // v1.8: BOTON 7 DIRECTO - el escaneo de la v1.7 revelo que IsTouchDown(int)
 // cuenta DEDOS (indice multi-touch 0..7), no botones: solo el 0 se encendia
@@ -94,9 +100,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.9.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.0.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.9.0-beta"
+#define VHUDRADIO_VERSION "2.0.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -112,6 +118,11 @@ static void Log(const char* fmt, ...) {
 static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "Bounce FM", "SF-UR",
     "Radio Los Santos", "Radio X", "CSR 103.9", "K-Jah West", "Master Sounds 98.3",
     "WCTR", "User tracks", "Radio Off" };
+
+// v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
+static const char* kStationTag[14] = { "", "Hip hop clasico", "Country", "Rock clasico",
+    "Funk y disco", "House", "Hip hop", "Rock alternativo", "R&B y soul", "Reggae",
+    "Groove y funk", "Charlas y noticias", "Tu propia musica", "Radio apagada" };
 
 // ---- funciones del juego (resueltas por GetSym, nunca llamadas si faltan) ----
 static void* (*FindPlayerPed)(int);
@@ -141,12 +152,10 @@ static const int kHornWidgetId = 7;  // WIDGET_HORN (GTAForums: 7 = claxon/horn)
 // v1.2 uso una zona estimada (y 0.40-0.62H) y fallo: los toques reales de Daniel
 // (log v1.3, toques #1-7) caen en (2258, 735) en 2408x1080, o sea (0.938W, 0.683H),
 // justo DEBAJO de la zona estimada. v1.4: circulo centrado en ese punto real.
-// v1.6: el centro ya no es fijo: se calibra con un toque (boton "Calibrar claxon"
-// bajo la rueda) y se guarda en horn_pos.txt. Si mueves el boton de claxon en los
-// controles del juego, lo recalibras. El toque pasa al juego igual: el claxon
-// suena y la rueda se abre.
+// v1.6 (boton "Calibrar claxon" retirado en v2.0: el claxon ya se detecta por el
+// boton 7 del juego): el centro de la zona se guarda en horn_pos.txt y se sigue
+// cargando al inicio por si se calibro antes; la zona solo es respaldo del boton 7.
 static float g_hornCx = 0.938f, g_hornCy = 0.683f;  // centro del claxon (fraccion de W/H)
-static bool g_calibrating = false;  // v1.6: esperando el toque al boton de claxon
 static bool InHornRegion(float x, float y, float W, float H) {
     float cx = W*g_hornCx, cy = H*g_hornCy, r = H*0.07f;
     float dx = x - cx, dy = y - cy;
@@ -155,15 +164,6 @@ static bool InHornRegion(float x, float y, float W, float H) {
 static void LoadHornPos() {
     FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "r");
     if (f) { float x = 0, y = 0; if (fscanf(f, "%f %f", &x, &y) == 2 && x > 0.05f && x < 0.99f && y > 0.05f && y < 0.99f) { g_hornCx = x; g_hornCy = y; } fclose(f); }
-}
-static void SaveHornPos() {
-    FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "w");
-    if (f) { fprintf(f, "%.3f %.3f\n", g_hornCx, g_hornCy); fclose(f); }
-}
-// rectangulo del boton "Calibrar claxon" bajo la rueda (misma geometria que el dibujo)
-static bool InCalButton(float x, float y, float W, float H) {
-    float cx = W*0.5f, cy = H*0.90f;
-    return x >= cx - W*0.13f && x <= cx + W*0.13f && y >= cy - H*0.03f && y <= cy + H*0.03f;
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -177,7 +177,7 @@ static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe
 static int SegmentAt(float x, float y, float W, float H) {
     float dx = x - W*0.5f, dy = y - H*0.5f;
     float dist = sqrtf(dx*dx + dy*dy);
-    if (dist < H*0.10f || dist > H*0.35f) return 0;
+    if (dist < H*0.18f || dist > H*0.40f) return 0;  // v2.0: rueda mas grande (R 0.36H)
     float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
     int seg = (int)(ang / (2*3.14159265f/13.0f)) + 1; if (seg > 13) seg = 13;
     return seg;
@@ -321,35 +321,38 @@ static void DrawWheel(float W, float H) {
     dl->AddCircle(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(255,255,255,200), 0, 2.0f);
 
     if (!g_open) return;
-    // rueda: 13 segmentos alrededor del centro de la pantalla
+    // v2.0: rueda estilo GTA V - logos flotando en circulo, sin disco; la
+    // seleccionada lleva anillo cian y las demas van atenuadas; en el centro
+    // el nombre de la estacion y su genero, como en GTA V.
     ImVec2 c(W * 0.5f, H * 0.5f);
-    float R = H * 0.30f, rIn = R * 0.55f;  // v1.1: rueda mas chica
-    dl->AddCircleFilled(c, R, IM_COL32(10,10,16,200));
-    dl->AddCircle(c, R, IM_COL32(255,255,255,180), 0, 3.0f);
+    float R = H * 0.36f;                 // radio de la rueda (mas grande que v1.x)
+    float Ri = R * 0.80f;                // radio del anillo de logos
+    float s = R * 0.21f;                 // mitad del icono
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, 70));  // oscurece el juego
+    dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
     for (int i = 1; i <= 13; i++) {
         float a0 = -3.14159265f/2 + (i-1) * 2*3.14159265f/13.0f;
         float a1 = a0 + 2*3.14159265f/13.0f;
         float am = (a0 + a1) * 0.5f;
-        ImVec2 p(c.x + cosf(am) * (rIn + R) * 0.5f, c.y + sinf(am) * (rIn + R) * 0.5f);
-        float s = R * 0.20f;  // v1.1: iconos mas chicos (~110px a 1080p)
-        if (i == g_selected) { // segmento seleccionado: marco + fondo claro
-            dl->AddCircleFilled(c, R, IM_COL32(120,80,200,60));
-            if (g_tex[0]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[0], ImVec2(p.x-s, p.y-s), ImVec2(p.x+s, p.y+s));
-        }
-        if (g_tex[i]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[i], ImVec2(p.x-s*0.85f, p.y-s*0.85f), ImVec2(p.x+s*0.85f, p.y+s*0.85f));
-        else dl->AddCircleFilled(p, s*0.5f, IM_COL32(255,255,255,120));
-        if (i == g_current) dl->AddCircle(p, s, IM_COL32(80,255,120,255), 0, 3.0f);
+        ImVec2 p(c.x + cosf(am) * Ri, c.y + sinf(am) * Ri);
+        bool sel = (i == g_selected);
+        float si = sel ? s * 1.12f : s;
+        if (g_tex[i]) {
+            ImVec4 tint = sel ? ImVec4(1, 1, 1, 1) : ImVec4(0.55f, 0.55f, 0.55f, 0.75f);
+            dl->AddImage((ImTextureID)(uintptr_t)g_tex[i], ImVec2(p.x-si, p.y-si), ImVec2(p.x+si, p.y+si), ImVec2(0, 0), ImVec2(1, 1), ImColor(tint));
+        } else dl->AddCircleFilled(p, si*0.5f, IM_COL32(255,255,255,120));
+        if (sel) dl->AddCircle(p, si, IM_COL32(0, 210, 255, 255), 48, 3.5f);       // anillo cian GTA V
+        else if (i == g_current) dl->AddCircle(p, si, IM_COL32(255, 255, 255, 220), 48, 2.0f);
     }
-    // nombre de la estacion seleccionada, debajo de la rueda
-    ImGui::SetNextWindowPos(ImVec2(c.x, c.y + R + H*0.03f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
-    ImGui::Begin("##vhudradio-name", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-    ImGui::Text("%s", kStationName[g_selected]);
-    ImGui::End();
-    // v1.6: boton "Calibrar claxon" (etiqueta visual; el toque se detecta en DrawFrame)
-    ImGui::SetNextWindowPos(ImVec2(c.x, c.y + R + H*0.10f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::Begin("##vhudradio-cal", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-    ImGui::Text("[ Calibrar claxon ]");
-    ImGui::End();
+    // centro: nombre de la estacion seleccionada + genero (estilo GTA V)
+    ImFont* font = ImGui::GetFont();
+    float nameSize = H * 0.045f, tagSize = H * 0.022f;
+    const char* name = kStationName[g_selected];
+    const char* tag = kStationTag[g_selected];
+    ImVec2 ns = font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, name, nullptr);
+    ImVec2 ts = font->CalcTextSizeA(tagSize, FLT_MAX, 0.0f, tag, nullptr);
+    dl->AddText(font, nameSize, ImVec2(c.x - ns.x*0.5f, c.y - ns.y*0.5f - H*0.015f), IM_COL32(255,255,255,255), name);
+    dl->AddText(font, tagSize, ImVec2(c.x - ts.x*0.5f, c.y + ns.y*0.5f + H*0.005f), IM_COL32(200,225,235,230), tag);
 }
 
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
@@ -386,22 +389,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 if (seg >= 1) { g_wheelTouch = true; if (seg != g_selected) { g_selected = seg; Log("rueda: segmento %d (%s)", seg, kStationName[seg]); } }
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
-            // v1.6: modo calibracion - este toque ES el boton de claxon del juego
-            if (g_calibrating && g_inVehicle) {
-                float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
-                if (io.MousePos.x >= bp.x && io.MousePos.x <= bp.x+bs && io.MousePos.y >= bp.y && io.MousePos.y <= bp.y+bs) {
-                    g_calibrating = false; Log("calibracion de claxon cancelada (tocaste el boton flotante)");
-                } else {
-                    g_hornCx = io.MousePos.x / (float)w; g_hornCy = io.MousePos.y / (float)h;
-                    SaveHornPos(); g_calibrating = false;
-                    Log("claxon calibrado en (%.0f, %.0f) = (%.3f, %.3f) - guardado en horn_pos.txt", io.MousePos.x, io.MousePos.y, g_hornCx, g_hornCy);
-                }
-            }
-            // v1.6: toque al boton "Calibrar claxon" bajo la rueda -> entrar en modo calibracion
-            if (g_open && !g_calibrating && InCalButton(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
-                g_calibrating = true; g_open = false; g_wheelTouch = false;
-                Log("modo calibracion de claxon: toca el boton del claxon del juego");
-            }
             // v1.5: tocar un segmento lo elige al instante (antes solo el arrastre elegia)
             if (g_open) {
                 int seg = SegmentAt(io.MousePos.x, io.MousePos.y, (float)w, (float)h);
@@ -446,7 +433,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // v1.9: claxon por el boton 7 directo - el byte 84 (0x54) de m_pWidgets[7]
     // es 1 mientras el boton esta pulsado (confirmado por el log de la v1.8).
     // Doble toque (<500 ms) abre/cierra la rueda. Si el arreglo no resuelve
-    // o el widget 7 es null, el claxon sigue por zona tactil/calibrada.
+    // o el widget 7 es null, el claxon sigue por zona tactil.
     if (g_widgets && g_inVehicle) {
         static bool prevHornDown = false;
         static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
@@ -460,13 +447,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         prevHornDown = hornDown;
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
-    // v1.6: aviso en pantalla mientras se calibra el claxon
-    if (g_calibrating) {
-        ImGui::SetNextWindowPos(ImVec2((float)w*0.5f, (float)h*0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::Begin("##vhudradio-calmsg", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-        ImGui::Text("Toca el boton del claxon del juego");
-        ImGui::End();
-    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
     if (g_inVehicle) DrawWheel((float)w, (float)h);
