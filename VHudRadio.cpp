@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.4 1.4.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.5 1.5.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,6 +10,14 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v1.5: la rueda ahora se queda ABIERTA hasta tocar una estacion (antes solo el
+// arrastre elegia: un toque directo a un segmento no lo seleccionaba, asi que habia
+// que mantener el dedo puesto). Tocar un segmento lo aplica y cierra; tocar fuera
+// de la rueda la cierra sin cambiar; el arrastre sigue funcionando.
+// v1.5 tambien vuelca la memoria de CPad para encontrar donde el juego guarda el
+// estado del claxon: si se mueve el boton de claxon en los controles del juego, la
+// zona tactil (v1.2-v1.4) deja de funcionar; leer el claxon desde CPad no depende
+// de la posicion del boton. El volcado es solo diagnostico para la v1.6.
 // v1.2: RetuneRadio NO cambia a una estacion concreta (en la prueba de Daniel la
 // radio se quedo en 10 aunque se llamo RetuneRadio(4/7/13/6/3): parece que solo
 // avanza/retrocede un paso). El cambio real es StartRadio: primero TrackManager
@@ -56,9 +64,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.4.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.5.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.4.0-beta"
+#define VHUDRADIO_VERSION "1.5.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -89,6 +97,10 @@ static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(void*, signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
 
+// ---- diagnostico CPad (v1.5): encontrar el estado del claxon en la memoria del juego ----
+typedef void* (*GetPadFn)(int);
+static GetPadFn g_getPad = nullptr;  // CPad::GetPad(0) = pad del jugador
+
 // ---- claxon: doble toque al boton de claxon del juego abre/cierra la rueda ----
 // v1.1 intento CPad::GetHorn, pero NO existe en libGTASA.so 2.10 (FALTA en el log).
 // v1.2 uso una zona estimada (y 0.40-0.62H) y fallo: los toques reales de Daniel
@@ -106,6 +118,18 @@ static std::string g_vhudDir;   // /storage/emulated/0/vhud
 static int g_current = 1;       // estacion actual conocida (1..13)
 static int g_selected = 1;      // segmento bajo el dedo mientras la rueda esta abierta
 static bool g_open = false;
+static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
+static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
+
+// v1.5: segmento bajo un punto de la pantalla (0 = fuera del anillo: centro o fuera de la rueda)
+static int SegmentAt(float x, float y, float W, float H) {
+    float dx = x - W*0.5f, dy = y - H*0.5f;
+    float dist = sqrtf(dx*dx + dy*dy);
+    if (dist < H*0.10f || dist > H*0.35f) return 0;
+    float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
+    int seg = (int)(ang / (2*3.14159265f/13.0f)) + 1; if (seg > 13) seg = 13;
+    return seg;
+}
 static bool g_inVehicle = false;
 
 // ---- texturas ImGui de los iconos (se crean en el primer frame, con contexto GL) ----
@@ -288,15 +312,16 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         if (e.kind == 0) {
             io.AddMousePosEvent(e.x, e.y);
             if (g_open) {
-                float dx = e.x - (float)w*0.5f, dy = e.y - (float)h*0.5f;
-                float dist = sqrtf(dx*dx + dy*dy);
-                if (dist > (float)h*0.10f) { // fuera del centro: el angulo elige el segmento
-                    float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
-                    int seg = (int)(ang / (2*3.14159265f/13.0f)) + 1; if (seg > 13) seg = 13;
-                    if (seg != g_selected) { g_selected = seg; Log("rueda: segmento %d (%s)", seg, kStationName[seg]); }
-                }
+                int seg = SegmentAt(e.x, e.y, (float)w, (float)h);
+                if (seg >= 1) { g_wheelTouch = true; if (seg != g_selected) { g_selected = seg; Log("rueda: segmento %d (%s)", seg, kStationName[seg]); } }
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
+            // v1.5: tocar un segmento lo elige al instante (antes solo el arrastre elegia)
+            if (g_open) {
+                int seg = SegmentAt(io.MousePos.x, io.MousePos.y, (float)w, (float)h);
+                if (seg >= 1) { g_selected = seg; g_wheelTouch = true; Log("rueda: segmento %d (%s) [toque]", seg, kStationName[seg]); }
+                else g_wheelTouch = false;  // toque fuera del anillo: al soltar se cierra sin cambiar
+            }
             // v1.2: doble toque al boton de claxon (zona derecha) abre/cierra la rueda
             if (g_inVehicle) {
                 static int tapLogN = 0;
@@ -305,7 +330,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
                     if (now - lastHornTap < std::chrono::milliseconds(500)) {
-                        if (!g_open) { g_open = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
+                        if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
                         else { g_open = false; Log("rueda cerrada por doble claxon"); }
                     }
                     lastHornTap = now;
@@ -315,12 +340,17 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
                 // el toque que abre se detecta por la posicion del ultimo evento 0 (io.MousePos)
                 if (io.MousePos.x >= bp.x && io.MousePos.x <= bp.x+bs && io.MousePos.y >= bp.y && io.MousePos.y <= bp.y+bs) {
-                    g_open = true; g_selected = g_current; RefreshCurrent(); g_selected = g_current;
+                    g_open = true; g_ignoreNextUp = true; g_selected = g_current; RefreshCurrent(); g_selected = g_current;
                     Log("rueda abierta (estacion actual %d %s)", g_current, kStationName[g_current]);
                 }
             }
         } else if (e.kind == 2) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-            if (mouseDown && g_open) { ApplyStation(g_selected); Log("rueda cerrada -> %d (%s)", g_selected, kStationName[g_selected]); g_open = false; }
+            if (g_ignoreNextUp) { g_ignoreNextUp = false; mouseDown = false; }  // v1.5: el toque que abrio la rueda no la cierra
+            else if (mouseDown && g_open) {
+                if (g_wheelTouch) { ApplyStation(g_selected); Log("rueda cerrada -> %d (%s)", g_selected, kStationName[g_selected]); }
+                else Log("rueda cerrada sin cambiar");
+                g_open = false;
+            }
             mouseDown = false; }
     }
     // v1.4: el juego actualiza la estacion leida con un poco de retraso tras StartRadio
@@ -329,6 +359,21 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_inVehicle && !g_open) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
+    }
+    // v1.5: diagnostico del claxon - volcar CPad (256 bytes) cada ~0.25 s, max 120 veces,
+    // para encontrar el byte que cambia al pulsar el claxon. Se lee, nunca se escribe.
+    if (g_inVehicle && g_getPad) {
+        static int padFrame = 0, padN = 0;
+        if (++padFrame % 15 == 0 && padN < 120) {
+            void* pad = g_getPad(0);
+            if (pad) {
+                padN++;
+                char hex[520]; const unsigned char* b = (const unsigned char*)pad;
+                for (int i = 0; i < 256; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
+                hex[512] = 0;
+                Log("pad #%d %s", padN, hex);
+            }
+        }
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -371,6 +416,7 @@ extern "C" void OnModLoad() {
     SYM(g_startTrack, "_ZN20CAERadioTrackManager10StartRadioEaafh");
     SYM(g_audioEngine, "AudioEngine");
     SYM(g_trackManager, "AERadioTrackManager");
+    SYM(g_getPad, "_ZN4CPad6GetPadEi");
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
     if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
