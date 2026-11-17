@@ -29,7 +29,7 @@
 //   con OpenSL ES (sin depender del juego).
 // - Panel de personalizacion: oscuridad del fondo, tamano de la rueda, color del
 //   anillo de seleccion, vista previa (solo se ve, no cambia la estacion) y
-//   restablecer todo. Se guarda en configs/VHudRadio.ini (files del juego).
+//   restablecer todo. Se guarda en configs/VHudRadio.ini (data del juego).
 // v2.1: LOGOS CON AIRE + MEJOR LETRA + BOTON CON OTRA FUNCION + ICONOS EN FILES
 // - Los logos se veian muy juntos: anillo mas grande (0.83R) e iconos mas chicos
 //   (0.175R) para que no se toquen.
@@ -138,6 +138,7 @@ NEEDGAME(com.rockstargames.gtasa)
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
 static std::string g_gameFilesDir;  // files del juego (se resuelve en OnModLoad)
+static std::string g_gameDataDir;  // v2.3: carpeta data del juego (padre de files) - el .ini va en data/configs
 static void Log(const char* fmt, ...) {
     // v1.7: buf 8192 (antes 600 y el volcado CPad de 2048 bytes se truncaba a ~295)
     char buf[8192];
@@ -256,16 +257,16 @@ static void LoadHornPos() {
     }
 }
 
-// ---- ajustes de la rueda (v2.2): se guardan en configs/VHudRadio.ini ----
+// ---- ajustes de la rueda (v2.2): se guardan en data/configs/VHudRadio.ini ----
 // [VHudRadio] fondo=30 (0..100, oscuridad del fondo) tamano=36 (25..45, % de H)
 // anillo=0,210,255 (color del anillo de seleccion, 0..255)
 struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; };
 static WheelCfg g_cfg;
 static bool g_settings = false;   // v2.2: panel de personalizacion abierto
 static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
-static std::string CfgPath() { return g_gameFilesDir + "/configs/VHudRadio.ini"; }
+static std::string CfgPath() { return g_gameDataDir + "/configs/VHudRadio.ini"; }  // v2.3: data/configs (AML), NO files/configs
 static void SaveCfg() {
-    mkdir((g_gameFilesDir + "/configs").c_str(), 0777);
+    mkdir((g_gameDataDir + "/configs").c_str(), 0777);
     FILE* f = fopen(CfgPath().c_str(), "w");
     if (!f) return;
     fprintf(f, "[VHudRadio]\n");
@@ -276,8 +277,15 @@ static void SaveCfg() {
 }
 static void LoadCfg() {
     g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
+    bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
-    if (!f) { SaveCfg(); return; }  // no existe: crearlo con los valores por defecto
+    if (!f) {
+        // v2.3: la v2.2 lo guardaba en files/configs - mudarlo si existe ahi
+        std::string old = g_gameFilesDir + "/configs/VHudRadio.ini";
+        f = fopen(old.c_str(), "r");
+        if (f) { fromOld = true; Log("  ajustes: mudando el .ini viejo de %s", old.c_str()); }
+    }
+    if (!f) { SaveCfg(); Log("  ajustes: creando %s con valores por defecto", CfgPath().c_str()); return; }  // no existe: crearlo con los valores por defecto
     char line[256];
     while (fgets(line, sizeof line, f)) {
         char* eq = strchr(line, '=');
@@ -301,6 +309,8 @@ static void LoadCfg() {
     if (g_cfg.ringR < 0) g_cfg.ringR = 0; if (g_cfg.ringR > 255) g_cfg.ringR = 255;
     if (g_cfg.ringG < 0) g_cfg.ringG = 0; if (g_cfg.ringG > 255) g_cfg.ringG = 255;
     if (g_cfg.ringB < 0) g_cfg.ringB = 0; if (g_cfg.ringB > 255) g_cfg.ringB = 255;
+    if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
+    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -770,12 +780,17 @@ extern "C" void OnModLoad() {
     for (auto d : kFilesDirs) { struct stat st; if (stat(d, &st) == 0) { files = d; break; } }
     if (files.empty()) files = kFilesDirs[1];
     g_gameFilesDir = files;
+    // v2.3: el .ini va en data/configs (AML: android_unprotected/... o android/.../configs),
+    // NO en files/configs - data es la carpeta padre de files
+    g_gameDataDir = files;
+    if (g_gameDataDir.size() > 6 && g_gameDataDir.compare(g_gameDataDir.size()-6, 6, "/files") == 0)
+        g_gameDataDir.resize(g_gameDataDir.size()-6);
     g_logPath = files + "/VHudRadioLog.txt";
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
     g_vhudDir = "/storage/emulated/0/vhud";
     mkdir(g_vhudDir.c_str(), 0777); mkdir((g_vhudDir + "/radio").c_str(), 0777);
     mkdir((g_gameFilesDir + "/vhud").c_str(), 0777); mkdir((g_gameFilesDir + "/vhud/radio").c_str(), 0777);
-    mkdir((g_gameFilesDir + "/configs").c_str(), 0777);
+    mkdir((g_gameDataDir + "/configs").c_str(), 0777);
     LoadCfg();
     LoadHornPos();
     Log("  centro del claxon: (%.3f, %.3f)", g_hornCx, g_hornCy);
