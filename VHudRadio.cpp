@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.7 1.7.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.8 1.8.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,6 +10,13 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v1.8: BOTON 7 DIRECTO - el escaneo de la v1.7 revelo que IsTouchDown(int)
+// cuenta DEDOS (indice multi-touch 0..7), no botones: solo el 0 se encendia
+// con cualquier toque. El claxon SI es el widget 7 (GTAForums: 7 = claxon/horn),
+// asi que esta version lee el boton 7 directo del arreglo CTouchInterface::
+// m_pWidgets[7] y vuelca sus primeros 128 bytes (y los del widget 2, acelerar,
+// como control) para encontrar su bandera de "tocado". Si aparece, la v1.9 la
+// leera directo y el claxon sera independiente de la posicion del boton.
 // v1.7: CLAXON POR WIDGET - verificado desensamblando el mod de rueda de armas que
 // mando Daniel (libweapwheeldliiartworks64.so, 1.5 MB): ese mod resuelve por GetSym
 // CTouchInterface::IsTouchDown(int) y lo llama como funcion estatica con el id del
@@ -80,9 +87,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.7.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.8.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.7.0-beta"
+#define VHUDRADIO_VERSION "1.8.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -115,18 +122,12 @@ static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(void*, signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
 
-// ---- claxon por widget (v1.7): CTouchInterface::IsTouchDown(id), estatica ----
-// Verificado en el mod de rueda de armas: se resuelve por GetSym y se llama con
-// el id del widget en w0, sin 'this'. El claxon seria el widget 7 (a confirmar
-// con el escaneo de widgets de esta version).
-typedef bool (*IsTouchDownFn)(int);
-static IsTouchDownFn g_isTouchDown = nullptr;
-static const int kHornWidgetId = 7;  // WIDGET_HORN (por confirmar con el escaneo)
-
-
-// ---- diagnostico CPad (v1.5): encontrar el estado del claxon en la memoria del juego ----
-typedef void* (*GetPadFn)(int);
-static GetPadFn g_getPad = nullptr;  // CPad::GetPad(0) = pad del jugador
+// ---- claxon por boton 7 directo (v1.8): CTouchInterface::m_pWidgets[7] ----
+// IsTouchDown resulto ser indice de dedo, no de boton (v1.7). El claxon es el
+// widget 7 (GTAForums: 7 = claxon/horn); aqui se lee directo del arreglo de
+// botones del juego y se vuelca su memoria para encontrar su bandera de "tocado".
+static void** g_widgets = nullptr;  // CTouchInterface::m_pWidgets
+static const int kHornWidgetId = 7;  // WIDGET_HORN (GTAForums: 7 = claxon/horn)
 
 // ---- claxon: doble toque al boton de claxon del juego abre/cierra la rueda ----
 // v1.1 intento CPad::GetHorn, pero NO existe en libGTASA.so 2.10 (FALTA en el log).
@@ -245,6 +246,15 @@ static void ToggleWheel(const char* why) {
     lastToggle = now;
     if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); }
     else { g_open = false; Log("rueda cerrada por %s", why); }
+}
+
+// v1.8: vuelca los primeros 128 bytes de un widget (para encontrar su bandera de "tocado")
+static void DumpWidget(const char* tag, void* w, int n) {
+    if (!w) { Log("%s #%d null", tag, n); return; }
+    char hex[260]; const unsigned char* b = (const unsigned char*)w;
+    for (int i = 0; i < 128; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
+    hex[256] = 0;
+    Log("%s #%d %s", tag, n, hex);
 }
 
 // ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
@@ -434,42 +444,16 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
     }
-    // v1.7: sondeo de widgets - que botones del juego estan pulsados ahora mismo.
-    // Si el claxon es el widget 7, al pulsarlo se vera "widgets down: ... 7 ...".
-    if (g_isTouchDown && g_inVehicle) {
-        static uint16_t prevDown = 0;
-        static bool prevHorn7 = false;
-        static auto lastWidgetTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
-        uint16_t down = 0;
-        for (int i = 0; i < 16; i++) if (g_isTouchDown(i)) down |= (uint16_t)(1u << i);
-        if (down != prevDown) {
-            char ids[64]; int n = 0;
-            for (int i = 0; i < 16; i++) if (down & (1u << i)) n += snprintf(ids + n, sizeof(ids) - n, "%d ", i);
-            Log("widgets down: [%s]%s", ids, (down & (1u << kHornWidgetId)) ? "  <- incluye 7 (claxon?)" : "");
-            prevDown = down;
-        }
-        bool horn7 = (down & (1u << kHornWidgetId)) != 0;
-        if (horn7 && !prevHorn7) {
-            auto now = std::chrono::steady_clock::now();
-            if (now - lastWidgetTap < std::chrono::milliseconds(500)) ToggleWheel("doble claxon (widget 7)");
-            lastWidgetTap = now;
-        }
-        prevHorn7 = horn7;
-    }
-    // v1.6: diagnostico del claxon AMPLIADO - los primeros 256 bytes de CPad salieron
-    // identicos en los 120 volcados de la v1.5. Ahora 2048 bytes, cada ~0.08 s, max 60.
-    // Para que el volcado atrape el claxon pulsado, hay que MANTENERLO pulsado 2-3 s.
-    if (g_inVehicle && g_getPad) {
-        static int padFrame = 0, padN = 0;
-        if (++padFrame % 5 == 0 && padN < 60) {
-            void* pad = g_getPad(0);
-            if (pad) {
-                padN++;
-                static char hex[4100]; const unsigned char* b = (const unsigned char*)pad;
-                for (int i = 0; i < 2048; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
-                hex[4096] = 0;
-                Log("pad #%d %s", padN, hex);
-            }
+    // v1.8: sonda del boton 7 - vuelca el widget 7 (claxon) y el 2 (acelerar,
+    // como control) cada ~0.08 s, max 120 veces. Al pulsar el claxon, algun byte
+    // del widget 7 tiene que cambiar: esa es su bandera de "tocado" y la v1.9
+    // la leera directo, sin depender de la posicion del boton.
+    if (g_widgets && g_inVehicle) {
+        static int wFrame = 0, wN = 0;
+        if (++wFrame % 5 == 0 && wN < 120) {
+            wN++;
+            DumpWidget("w7", g_widgets[kHornWidgetId], wN);
+            DumpWidget("w2", g_widgets[2], wN);
         }
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
@@ -522,9 +506,9 @@ extern "C" void OnModLoad() {
     SYM(g_startTrack, "_ZN20CAERadioTrackManager10StartRadioEaafh");
     SYM(g_audioEngine, "AudioEngine");
     SYM(g_trackManager, "AERadioTrackManager");
-    SYM(g_getPad, "_ZN4CPad6GetPadEi");
-    SYM(g_isTouchDown, "_ZN15CTouchInterface11IsTouchDownEi");
-    if (!g_isTouchDown) Log("  !! IsTouchDown no resolvio: el claxon seguira solo por zona tactil/calibrada");
+    SYM(g_widgets, "_ZN15CTouchInterface10m_pWidgetsE");
+    if (g_widgets) Log("  widgets: m_pWidgets=%p w0=%p w2=%p w7=%p", (void*)g_widgets, g_widgets[0], g_widgets[2], g_widgets[7]);
+    else Log("  !! m_pWidgets no resolvio: no se puede leer el boton 7 directo; el claxon sigue por zona tactil/calibrada");
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
     if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
