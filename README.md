@@ -1,10 +1,11 @@
-# VHud Radio Probe 1.0.0
+# VHud Radio Wheel 1.0.0-beta
 
-Mini-plugin AML que NO cambia nada: solo prueba si los símbolos de radio
-existen en libGTASA.so 2.10 arm64 y escribe ok/FALTA en
-`VHudRadioProbe.txt` (junto al juego, en `Android/data/com.rockstargames.gtasa/files/`).
+Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
+Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 
-Se compila igual que ARCX (GitHub Actions + NDK) y sale `libVHudRadioProbe64.so`.
-Se mete en la carpeta de AML como cualquier plugin, se entra al juego una vez,
-se sale, y se manda el txt. Con eso se arma la v1 de la rueda solo con los
-símbolos que dijeron ok, sin adivinar.
+- Lee los iconos de `/storage/emulated/0/vhud/radio/radio_1.png` ... `radio_13.png`
+  (+ `radio_current.png`), sin importarlos ni incrustarlos.
+- Botón flotante dentro de un vehículo -> rueda de 13 segmentos -> soltar cambia la estación.
+- Log: `VHudRadioLog.txt` junto al juego.
+- Si ningún símbolo de radio resolvió (ver `probe/`), la rueda se dibuja pero no
+  cambia la estación y lo deja escrito en el log. No se llama a nada que no resolvió.
