@@ -1,7 +1,7 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.0 2.0.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.1 2.1.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
-// Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
+// Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
 // (+ radio_current.png) al arrancar, con stb_image, y los dibuja con ImGui.
 // La rueda es NUEVA (en PC la radio no era rueda, solo un icono 2 s al cambiar):
 // 13 segmentos en circulo, se abre con un boton flotante dentro de un vehiculo,
@@ -10,6 +10,15 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.1: LOGOS CON AIRE + MEJOR LETRA + BOTON CON OTRA FUNCION + ICONOS EN FILES
+// - Los logos se veian muy juntos: anillo mas grande (0.83R) e iconos mas chicos
+//   (0.175R) para que no se toquen.
+// - Letra del centro: Roboto Condensed negrita de /system/fonts (la mas parecida
+//   a la de GTA V que trae el telefono); si no esta, Roboto Bold o la de ImGui.
+// - Boton flotante: un toque = siguiente estacion; dos toques = abrir la rueda.
+// - Iconos: ahora se buscan primero en files del juego
+//   (Android/data/com.rockstargames.gtasa/files/vhud/radio/) y si no estan ahi,
+//   en /storage/emulated/0/vhud/radio/ como antes.
 // v2.0: DISENO GTA V + SIN CALIBRAR - el claxon ya se detecta por el boton 7
 // (confirmado en el log de la v1.9: 11 aperturas por "boton 7"), asi que el boton
 // "Calibrar claxon" bajo la rueda se quito (la zona tactil queda solo de
@@ -100,12 +109,13 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.0.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.1.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.0.0-beta"
+#define VHUDRADIO_VERSION "2.1.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
+static std::string g_gameFilesDir;  // files del juego (se resuelve en OnModLoad)
 static void Log(const char* fmt, ...) {
     // v1.7: buf 8192 (antes 600 y el volcado CPad de 2048 bytes se truncaba a ~295)
     char buf[8192];
@@ -162,14 +172,23 @@ static bool InHornRegion(float x, float y, float W, float H) {
     return dx*dx + dy*dy <= r*r;
 }
 static void LoadHornPos() {
-    FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "r");
-    if (f) { float x = 0, y = 0; if (fscanf(f, "%f %f", &x, &y) == 2 && x > 0.05f && x < 0.99f && y > 0.05f && y < 0.99f) { g_hornCx = x; g_hornCy = y; } fclose(f); }
+    // v2.1: horn_pos.txt tambien se busca primero en files del juego
+    for (const std::string& hp : {g_gameFilesDir + "/vhud/horn_pos.txt", "/storage/emulated/0/vhud/horn_pos.txt"}) {
+        FILE* f = fopen(hp.c_str(), "r");
+        if (!f) continue;
+        float x = 0, y = 0;
+        if (fscanf(f, "%f %f", &x, &y) == 2 && x > 0.05f && x < 0.99f && y > 0.05f && y < 0.99f) { g_hornCx = x; g_hornCy = y; }
+        fclose(f);
+        return;
+    }
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
 static int g_current = 1;       // estacion actual conocida (1..13)
 static int g_selected = 1;      // segmento bajo el dedo mientras la rueda esta abierta
 static bool g_open = false;
+static bool g_btnPending = false;  // v2.1: un toque al boton flotante esperando (siguiente estacion si no hay segundo toque)
+static std::chrono::steady_clock::time_point g_btnPendingAt;
 static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
 static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
 
@@ -177,7 +196,7 @@ static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe
 static int SegmentAt(float x, float y, float W, float H) {
     float dx = x - W*0.5f, dy = y - H*0.5f;
     float dist = sqrtf(dx*dx + dy*dy);
-    if (dist < H*0.18f || dist > H*0.40f) return 0;  // v2.0: rueda mas grande (R 0.36H)
+    if (dist < H*0.20f || dist > H*0.40f) return 0;  // v2.1: logos con mas espacio
     float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
     int seg = (int)(ang / (2*3.14159265f/13.0f)) + 1; if (seg > 13) seg = 13;
     return seg;
@@ -211,17 +230,22 @@ static GLuint LoadPngToGl(const std::string& path) {
 }
 static void LoadRadioTextures() {
     if (g_texTried) return; g_texTried = true;
+    // v2.1: iconos dentro de files del juego (Android/data/com.rockstargames.gtasa/files/vhud/radio/);
+    // si no estan ahi, se usa la carpeta de antes (/storage/emulated/0/vhud/radio/).
+    std::string dir = g_gameFilesDir + "/vhud/radio";
+    { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/radio"; }
+    Log("carpeta de iconos: %s/ (radio_1.png ... radio_13.png)", dir.c_str());
     int ok = 0;
     for (int i = 1; i <= 13; i++) {
-        std::string p = g_vhudDir + "/radio/radio_" + std::to_string(i) + ".png";
+        std::string p = dir + "/radio_" + std::to_string(i) + ".png";
         g_tex[i] = LoadPngToGl(p);
         if (g_tex[i]) ok++;
         Log("  %s radio_%d.png", g_tex[i] ? "ok    " : "FALTA ", i);
     }
-    g_tex[0] = LoadPngToGl(g_vhudDir + "/radio/radio_current.png");
+    g_tex[0] = LoadPngToGl(dir + "/radio_current.png");
     Log("  %s radio_current.png", g_tex[0] ? "ok    " : "FALTA ");
     Log("iconos de radio cargados: %d/13 (+marco %s)", ok, g_tex[0] ? "si" : "no");
-    if (ok == 0) Log("  !! sin iconos: copia vhud/radio/ a /storage/emulated/0/vhud/ (ver README)");
+    if (ok == 0) Log("  !! sin iconos: copia vhud/radio/ a files del juego o a /storage/emulated/0/vhud/ (ver README)");
 }
 
 // ---- cambiar de estacion: solo con funciones que resolvieron ----
@@ -311,6 +335,8 @@ static bool PatchGot(const char* libName, const char* sym, void* repl, void** or
     return scan(jmprel, jmpsz) || scan(rela, relasz);
 }
 
+static ImFont* g_fontTitle = nullptr;  // v2.1: letra del centro (Roboto Condensed negrita del sistema)
+
 static void DrawWheel(float W, float H) {
     // boton flotante (abajo a la derecha, encima de los controles del juego)
     float bs = H * 0.06f;  // v1.1: boton mas chico
@@ -326,8 +352,8 @@ static void DrawWheel(float W, float H) {
     // el nombre de la estacion y su genero, como en GTA V.
     ImVec2 c(W * 0.5f, H * 0.5f);
     float R = H * 0.36f;                 // radio de la rueda (mas grande que v1.x)
-    float Ri = R * 0.80f;                // radio del anillo de logos
-    float s = R * 0.21f;                 // mitad del icono
+    float Ri = R * 0.83f;                // v2.1: anillo mas grande, logos con aire
+    float s = R * 0.175f;                // v2.1: iconos mas chicos para que no se toquen
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, 70));  // oscurece el juego
     dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
     for (int i = 1; i <= 13; i++) {
@@ -345,8 +371,8 @@ static void DrawWheel(float W, float H) {
         else if (i == g_current) dl->AddCircle(p, si, IM_COL32(255, 255, 255, 220), 48, 2.0f);
     }
     // centro: nombre de la estacion seleccionada + genero (estilo GTA V)
-    ImFont* font = ImGui::GetFont();
-    float nameSize = H * 0.045f, tagSize = H * 0.022f;
+    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
+    float nameSize = H * 0.05f, tagSize = H * 0.024f;
     const char* name = kStationName[g_selected];
     const char* tag = kStationTag[g_selected];
     ImVec2 ns = font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, name, nullptr);
@@ -368,6 +394,13 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         io.IniFilename = nullptr; io.LogFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         ImGui::StyleColorsDark();
+        // v2.1: letra mas parecida a GTA V - Roboto Condensed negrita del sistema
+        io.Fonts->AddFontDefault();
+        for (const char* fp : {"/system/fonts/RobotoCondensed-Bold.ttf", "/system/fonts/Roboto-Bold.ttf", "/system/fonts/DroidSans-Bold.ttf"}) {
+            g_fontTitle = io.Fonts->AddFontFromFileTTF(fp, 64.0f);
+            if (g_fontTitle) { Log("fuente del titulo: %s", fp); break; }
+        }
+        if (!g_fontTitle) Log("  !! sin fuente del sistema: el titulo usa la letra de ImGui");
         if (!ImGui_ImplOpenGL3_Init(nullptr)) { Log("ImGui_ImplOpenGL3_Init fallo"); g_failed = true; return; }
         g_inited = true; LoadRadioTextures(); RefreshCurrent();
         Log("ImGui listo (%.0fx%.0f), estacion actual: %d (%s)", (float)w, (float)h, g_current, kStationName[g_current]);
@@ -406,12 +439,21 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     lastHornTap = now;
                 }
             }
+            // v2.1: boton flotante - un toque = siguiente estacion; dos toques = abrir la rueda
             if (!g_open && g_inVehicle) {
                 float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
-                // el toque que abre se detecta por la posicion del ultimo evento 0 (io.MousePos)
+                // el toque se detecta por la posicion del ultimo evento 0 (io.MousePos)
                 if (io.MousePos.x >= bp.x && io.MousePos.x <= bp.x+bs && io.MousePos.y >= bp.y && io.MousePos.y <= bp.y+bs) {
-                    g_open = true; g_ignoreNextUp = true; g_selected = g_current; RefreshCurrent(); g_selected = g_current;
-                    Log("rueda abierta (estacion actual %d %s)", g_current, kStationName[g_current]);
+                    static auto lastBtnTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - lastBtnTap < std::chrono::milliseconds(400)) {
+                        g_btnPending = false;
+                        g_open = true; g_ignoreNextUp = true; g_selected = g_current; RefreshCurrent(); g_selected = g_current;
+                        Log("rueda abierta por boton (estacion actual %d %s)", g_current, kStationName[g_current]);
+                    } else {
+                        g_btnPending = true; g_btnPendingAt = now;
+                    }
+                    lastBtnTap = now;
                 }
             }
         } else if (e.kind == 2) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
@@ -422,6 +464,16 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 g_open = false;
             }
             mouseDown = false; }
+    }
+    // v2.1: un solo toque al boton flotante = siguiente estacion (si no llega un segundo toque en 400 ms)
+    if (g_btnPending) {
+        if (g_open) g_btnPending = false;  // la rueda se abrio por otro camino: no cambiar de estacion
+        else if (std::chrono::steady_clock::now() - g_btnPendingAt > std::chrono::milliseconds(400)) {
+            g_btnPending = false;
+            int next = g_current % 13 + 1;
+            ApplyStation(next);
+            Log("boton: siguiente estacion %d (%s)", next, kStationName[next]);
+        }
     }
     // v1.4: el juego actualiza la estacion leida con un poco de retraso tras StartRadio
     // (en el log v1.3 la lectura iba una estacion atrasada); re-leer cada ~0.5 s para
@@ -468,14 +520,15 @@ extern "C" void OnModLoad() {
     std::string files;
     for (auto d : kFilesDirs) { struct stat st; if (stat(d, &st) == 0) { files = d; break; } }
     if (files.empty()) files = kFilesDirs[1];
+    g_gameFilesDir = files;
     g_logPath = files + "/VHudRadioLog.txt";
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
     g_vhudDir = "/storage/emulated/0/vhud";
     mkdir(g_vhudDir.c_str(), 0777); mkdir((g_vhudDir + "/radio").c_str(), 0777);
+    mkdir((g_gameFilesDir + "/vhud").c_str(), 0777); mkdir((g_gameFilesDir + "/vhud/radio").c_str(), 0777);
     LoadHornPos();
     Log("  centro del claxon: (%.3f, %.3f)", g_hornCx, g_hornCy);
     Log("== VHud Radio Wheel %s cargado ==", VHUDRADIO_VERSION);
-    Log("carpeta de iconos: %s/radio/ (radio_1.png ... radio_13.png)", g_vhudDir.c_str());
 
     void* h = aml->GetLibHandle("libGTASA.so");
     #define SYM(var, name) do { *(void**)&var = (void*)aml->GetSym(h, name); Log("  %s %s", var ? "ok    " : "FALTA " , name); } while (0)
