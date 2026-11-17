@@ -87,7 +87,9 @@ NEEDGAME(com.rockstargames.gtasa)
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
 static void Log(const char* fmt, ...) {
-    char buf[8192];  // v1.7: antes 600 y el volcado CPad de 2048 bytes se truncaba a ~295 va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
+    // v1.7: buf 8192 (antes 600 y el volcado CPad de 2048 bytes se truncaba a ~295)
+    char buf[8192];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
     __android_log_print(ANDROID_LOG_INFO, "VHudRadio", "%s", buf);
     if (!g_logPath.empty()) { FILE* f = fopen(g_logPath.c_str(), "a"); if (f) { fprintf(f, "%s\n", buf); fclose(f); } }
 }
