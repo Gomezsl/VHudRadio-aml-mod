@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.2 1.2.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.3 1.3.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -15,6 +15,12 @@
 // avanza/retrocede un paso). El cambio real es StartRadio: primero TrackManager
 // (Eaafh, el que usa el mod GTA6Radio 4.0 en 2.10), luego AudioEngine (Eaa),
 // y RetuneRadio queda solo como ultimo recurso.
+// v1.3: BUG DE LA v1.2 - las funciones de radio son metodos C++ y necesitan 'this'
+// (el objeto global AudioEngine / AERadioTrackManager). Sin 'this', el id de la
+// estacion caia en el registro de 'this' y la funcion tocaba memoria basura:
+// por eso StartRadio(12) cerro el juego en la prueba de Daniel, y por eso
+// RetuneRadio nunca cambio nada (su argumento real era basura) y GetCurrent
+// devolvia valores raros (10, 13...). Ahora todo se llama con su 'this' real.
 // NO usar los mangleds de PC (Ea vs Ec, Eific...). CMenuManager::RetuneRadio NO existe.
 // Por eso la v1 NUNCA llama a una funcion que no resolvio con GetSym: si RetuneRadio
 // falta, la rueda se abre, se ve, pero al soltar solo lo registra en el log.
@@ -50,9 +56,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.2.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.3.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.2.0-beta"
+#define VHUDRADIO_VERSION "1.3.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -70,13 +76,17 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 // ---- funciones del juego (resueltas por GetSym, nunca llamadas si faltan) ----
 static void* (*FindPlayerPed)(int);
 static void* (*FindPlayerVehicle)(int, bool);
-typedef signed char (*RetuneFn)(signed char);  // en la practica devuelve void/char; solo se llama si resolvio
+// Las funciones de radio son metodos C++: el primer argumento es 'this', el objeto
+// global del juego (resuelto por GetSym, el Probe ya confirmo que existen).
+static void* g_audioEngine = nullptr;   // global CAudioEngine
+static void* g_trackManager = nullptr;  // global CAERadioTrackManager
+typedef signed char (*RetuneFn)(void*, signed char);  // en la practica devuelve void/char; solo se llama si resolvio
 static RetuneFn g_retuneAudio = nullptr, g_retuneTrack = nullptr;
-typedef signed char (*GetStationFn)();
+typedef signed char (*GetStationFn)(void*);
 static GetStationFn g_getStationAudio = nullptr, g_getStationTrack = nullptr;
-typedef void (*StartRadioAudioFn)(signed char, signed char);
+typedef void (*StartRadioAudioFn)(void*, signed char, signed char);
 static StartRadioAudioFn g_startAudio = nullptr;
-typedef void (*StartRadioTrackFn)(signed char, signed char, float, unsigned char);
+typedef void (*StartRadioTrackFn)(void*, signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
 
 // ---- claxon (v1.2): doble toque al boton de claxon del juego abre/cierra la rueda ----
@@ -138,18 +148,19 @@ static void LoadRadioTextures() {
 static void ApplyStation(int id) {
     if (id < 1 || id > 13) return;
     // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
-    if (g_startTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack((signed char)id, 0, 1.0f, 0); }
-    else if (g_startAudio) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio((signed char)id, 0); }
-    else if (g_retuneAudio) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio((signed char)id); }
-    else if (g_retuneTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack((signed char)id); }
-    else { Log("!! sin RetuneRadio ni StartRadio: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
+    // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
+    if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
+    else if (g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
+    else if (g_retuneAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio(g_audioEngine, (signed char)id); }
+    else if (g_retuneTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack(g_trackManager, (signed char)id); }
+    else { Log("!! sin Retune/Start con su objeto global: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
     g_current = id;
     // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
-    if (g_getStationAudio) { int v = (int)g_getStationAudio(); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
+    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
 }
 static void RefreshCurrent() {
-    if (g_getStationAudio) { int v = (int)g_getStationAudio(); if (v >= 1 && v <= 13) g_current = v; return; }
-    if (g_getStationTrack) { int v = (int)g_getStationTrack(); if (v >= 1 && v <= 13) g_current = v; }
+    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); if (v >= 1 && v <= 13) g_current = v; return; }
+    if (g_getStationTrack && g_trackManager) { int v = (int)g_getStationTrack(g_trackManager); if (v >= 1 && v <= 13) g_current = v; }
 }
 
 // ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
@@ -347,7 +358,11 @@ extern "C" void OnModLoad() {
     SYM(g_getStationTrack, "_ZN20CAERadioTrackManager24GetCurrentRadioStationIDEv");
     SYM(g_startAudio, "_ZN12CAudioEngine10StartRadioEaa");
     SYM(g_startTrack, "_ZN20CAERadioTrackManager10StartRadioEaafh");
+    SYM(g_audioEngine, "AudioEngine");
+    SYM(g_trackManager, "AERadioTrackManager");
     #undef SYM
+    Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
+    if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
     if (!g_retuneAudio && !g_retuneTrack && !g_startAudio && !g_startTrack)
         Log("!! ningun Retune/Start resolvio: la rueda se dibujara pero no cambiara la radio. Ver VHudRadioProbe.txt");
 
