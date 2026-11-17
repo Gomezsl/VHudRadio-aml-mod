@@ -130,8 +130,7 @@ static void LoadHornPos() {
 }
 static void SaveHornPos() {
     FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "w");
-    if (f) { fprintf(f, "%.3f %.3f
-", g_hornCx, g_hornCy); fclose(f); }
+    if (f) { fprintf(f, "%.3f %.3f\n", g_hornCx, g_hornCy); fclose(f); }
 }
 // rectangulo del boton "Calibrar claxon" bajo la rueda (misma geometria que el dibujo)
 static bool InCalButton(float x, float y, float W, float H) {
