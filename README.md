@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.3.0-beta
+# VHud Radio Wheel 2.4.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -18,6 +18,8 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   `Android_unprotected/data/com.rockstargames.gtasa/configs/`, la ruta AML
   desprotegida). Si existe un .ini viejo en `files/configs/`, se muda solo.
 - La rueda, el botón y el panel no se ven en el menú de pausa del juego.
+  (Si el teléfono no resuelve el menú, el panel sigue siendo usable y se
+  puede cerrar con su botón Cerrar.)
 - Log: `VHudRadioLog.txt` junto al juego.
 - Si ningún símbolo de radio resolvió (ver `probe/`), la rueda se dibuja pero no
   cambia la estación y lo deja escrito en el log. No se llama a nada que no resolvió.
