@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.4 2.4.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.5 2.5.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,17 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.5: PANEL ESTILO ARCX + PANEL RGB TACTIL
+// - El panel ahora usa el diseno de ARCX (3.1.35-3.1.40): violeta ARCX
+//   (0.45, 0.30, 0.95), fondo oscuro tintado, titulo centrado y borde en
+//   degradado azul -> morado alrededor de toda la ventana.
+// - Los 8 colores predeterminados y el ColorEdit3 se quitaron: ahora hay un
+//   panel RGB tactil como el selector de ARCX 3.1.38 - cuadro grande de
+//   saturacion/valor + barra vertical de tono, se arrastra con el dedo, con
+//   muestra del color y valores R G B + hexadecimal. El color se guarda al
+//   soltar (y al cerrar), como los deslizadores.
+// - El anillo sigue siendo el color que elija el usuario (por defecto cian);
+//   el violeta es solo el diseno del panel.
 // v2.4: PANEL FUNCIONAL + PAUSA DE VERDAD
 // - El panel NO funcionaba: Touch_hook solo pasaba los eventos de soltar/mover
 //   a ImGui cuando la rueda estaba abierta (g_open || g_cap, y g_cap nunca se
@@ -142,9 +153,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.4.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.5.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.4.0-beta"
+#define VHUDRADIO_VERSION "2.5.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -581,48 +592,165 @@ static void DrawWheel(float W, float H) {
     }
 }
 
+// ---- diseno del panel estilo ARCX (violeta + degradado azul -> morado) --------
+static ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t) {
+    return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w);
+}
+static float Clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static const ImVec4 kPanelAccent(0.45f, 0.30f, 0.95f, 1.0f);   // violeta ARCX
+static const ImVec4 kPanelGradBlue(0.05f, 0.55f, 1.00f, 1.0f); // azul del degradado del logo
+static const ImVec4 kPanelGradPurple(0.65f, 0.20f, 0.95f, 1.0f); // morado del degradado
+static ImVec4 PanelGradL() { return Mix(kPanelAccent, kPanelGradBlue, 0.55f); }
+static ImVec4 PanelGradR() { return Mix(kPanelAccent, kPanelGradPurple, 0.55f); }
+// Borde con degradado (izquierda -> derecha) siguiendo un rectangulo redondeado.
+// Se dibuja como segmentos de linea gruesa con el color interpolado por la x;
+// un circulo en cada union evita huecos en las esquinas (igual que en ARCX).
+static void AddGradientBorder(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float radius, float thick, const ImVec4& colL, const ImVec4& colR) {
+    const float w = p1.x - p0.x, h = p1.y - p0.y;
+    const float r = fminf(radius, fminf(w, h) * 0.5f);
+    const int ES = 8, AS = 5;
+    ImVec2 pts[64];
+    int n = 0;
+    auto push = [&](float x, float y) { if (n < 64) pts[n++] = ImVec2(x, y); };
+    for (int i = 0; i <= ES; i++) push(p0.x + r + (w - 2.0f * r) * i / (float)ES, p0.y);
+    for (int i = 1; i <= AS; i++) { float a = -1.5707963f + 1.5707963f * i / (float)AS; push(p1.x - r + cosf(a) * r, p0.y + r + sinf(a) * r); }
+    for (int i = 1; i <= ES; i++) push(p1.x, p0.y + r + (h - 2.0f * r) * i / (float)ES);
+    for (int i = 1; i <= AS; i++) { float a = 1.5707963f * i / (float)AS; push(p1.x - r + cosf(a) * r, p1.y - r + sinf(a) * r); }
+    for (int i = 1; i <= ES; i++) push(p1.x - r - (w - 2.0f * r) * i / (float)ES, p1.y);
+    for (int i = 1; i <= AS; i++) { float a = 1.5707963f + 1.5707963f * i / (float)AS; push(p0.x + r + cosf(a) * r, p1.y - r + sinf(a) * r); }
+    for (int i = 1; i <= ES; i++) push(p0.x, p1.y - r - (h - 2.0f * r) * i / (float)ES);
+    for (int i = 1; i <= AS; i++) { float a = 3.14159265f + 1.5707963f * i / (float)AS; push(p0.x + r + cosf(a) * r, p0.y + r + sinf(a) * r); }
+    for (int i = 0; i < n; i++) {
+        ImVec2 a = pts[i], b = pts[(i + 1) % n];
+        float f = ((a.x + b.x) * 0.5f - p0.x) / w;
+        if (f < 0.0f) f = 0.0f; if (f > 1.0f) f = 1.0f;
+        ImU32 col = ImGui::GetColorU32(ImVec4(colL.x + (colR.x - colL.x) * f, colL.y + (colR.y - colL.y) * f,
+                                              colL.z + (colR.z - colL.z) * f, colL.w + (colR.w - colL.w) * f));
+        dl->AddLine(a, b, col, thick);
+        dl->AddCircleFilled(a, thick * 0.5f, col, 6);
+    }
+}
+// ---- panel RGB tactil (como el selector de ARCX 3.1.38) ----------------------
+// El anillo se guarda en RGB (g_cfg), pero el panel trabaja en HSV: el cuadro
+// grande es saturacion (X) / valor (Y) para el tono actual, y la barra vertical
+// es el tono. El HSV se guarda aparte; cuando no se esta arrastrando, se
+// sincroniza desde g_cfg (asi refleja tambien el restablecer).
+static float g_pickH = 0.52f, g_pickS = 1.0f, g_pickV = 1.0f;
+static bool g_cfgDirty = false;  // v2.5: algo cambio y aun no se guardo en el .ini
+static void PickerSyncFromRGB() { ImGui::ColorConvertRGBtoHSV(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, g_pickH, g_pickS, g_pickV); }
+static void PickerApplyToRGB() {
+    float r, g, b;
+    ImGui::ColorConvertHSVtoRGB(g_pickH, g_pickS, g_pickV, r, g, b);
+    g_cfg.ringR = (int)(r * 255.0f + 0.5f);
+    g_cfg.ringG = (int)(g * 255.0f + 0.5f);
+    g_cfg.ringB = (int)(b * 255.0f + 0.5f);
+}
+
 // v2.2: panel de personalizacion (se abre con doble toque al boton flotante)
 static void DrawSettings(float W, float H) {
+    // paleta ARCX: violeta, fondo oscuro tintado, titulo claro
+    const ImVec4 accent = kPanelAccent;
+    const ImVec4 titleCol = Mix(accent, ImVec4(1, 1, 1, 1), 0.55f);
+    const ImVec4 bgCol = Mix(ImVec4(0.045f, 0.047f, 0.060f, 0.97f), accent, 0.13f);
+    const ImVec4 btnHov = Mix(accent, ImVec4(1, 1, 1, 1), 0.20f);
+    const ImVec4 btnAct = Mix(accent, ImVec4(0, 0, 0, 1), 0.25f);
+    const ImVec4 frameCol(0.10f, 0.10f, 0.18f, 1.0f);
+    const ImVec4 frameHov = Mix(frameCol, accent, 0.35f);
     ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(W * 0.42f, 0), ImGuiCond_Always);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.02f, H*0.02f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.012f, H*0.015f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(H*0.015f, H*0.012f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.012f, H*0.012f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.011f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(H*0.012f, H*0.010f));
     ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, H*0.03f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, H*0.015f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, H*0.008f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgCol);
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, Mix(accent, ImVec4(0, 0, 0, 1), 0.45f));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, accent);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+    ImGui::PushStyleColor(ImGuiCol_Button, accent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHov);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnAct);
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, accent);
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, btnHov);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, frameCol);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, frameHov);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, frameHov);
+    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(accent.x, accent.y, accent.z, 0.5f));
     if (g_fontUI) ImGui::PushFont(g_fontUI);
     bool opened = ImGui::Begin("Personalizar rueda de radio", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-    if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleVar(5); return; }
+    if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleColor(13); ImGui::PopStyleVar(8); return; }
     ImGui::Text("Fondo, tamano y color del anillo.");
     ImGui::Text("Se guardan en configs/VHudRadio.ini");
     ImGui::Separator();
-    ImGui::Text("Oscuridad del fondo");
-    ImGui::SliderInt("##fondo", &g_cfg.fondo, 0, 100, "%d%%");
-    ImGui::Text("Tamano de la rueda");
-    ImGui::SliderInt("##tamano", &g_cfg.tamano, 25, 45, "%d%%");
-    ImGui::Text("Color del anillo");
-    // colores rapidos: botones grandes, faciles de tocar
-    static const ImVec4 kQuick[8] = {
-        ImVec4(0.0f, 0.82f, 1.0f, 1.0f), ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
-        ImVec4(1.0f, 0.2f, 0.2f, 1.0f), ImVec4(0.2f, 0.9f, 0.2f, 1.0f),
-        ImVec4(1.0f, 0.85f, 0.0f, 1.0f), ImVec4(1.0f, 0.3f, 0.9f, 1.0f),
-        ImVec4(1.0f, 0.55f, 0.0f, 1.0f), ImVec4(0.3f, 0.4f, 1.0f, 1.0f)};
-    for (int qi = 0; qi < 8; qi++) {
-        if (qi > 0) ImGui::SameLine();
-        ImGui::PushID(qi);
-        if (ImGui::ColorButton("##q", kQuick[qi], ImGuiColorEditFlags_NoTooltip, ImVec2(H*0.045f, H*0.045f))) {
-            g_cfg.ringR = (int)(kQuick[qi].x * 255.0f + 0.5f);
-            g_cfg.ringG = (int)(kQuick[qi].y * 255.0f + 0.5f);
-            g_cfg.ringB = (int)(kQuick[qi].z * 255.0f + 0.5f);
-        }
-        ImGui::PopID();
+    ImGui::TextColored(titleCol, "Oscuridad del fondo");
+    if (ImGui::SliderInt("##fondo", &g_cfg.fondo, 0, 100, "%d%%")) g_cfgDirty = true;
+    ImGui::TextColored(titleCol, "Tamano de la rueda");
+    if (ImGui::SliderInt("##tamano", &g_cfg.tamano, 25, 45, "%d%%")) g_cfgDirty = true;
+    ImGui::TextColored(titleCol, "Color del anillo");
+    // ---- panel RGB tactil (como ARCX 3.1.38): cuadro saturacion/valor + barra de tono ----
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGuiIO& io = ImGui::GetIO();
+    const float gap = H * 0.012f;
+    const float hueW = H * 0.045f;
+    float availW = ImGui::GetContentRegionAvail().x;
+    float sq = availW - hueW - gap;
+    if (sq > H * 0.24f) sq = H * 0.24f;   // no mas alto que el 24% de la pantalla (que quepa el panel)
+    if (sq < H * 0.16f) sq = H * 0.16f;
+    float rowW = sq + gap + hueW;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - rowW) * 0.5f);  // centrar el panel de color
+    ImVec2 sq0 = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##sv", ImVec2(sq, sq));
+    bool svActive = ImGui::IsItemActive();
+    ImGui::SameLine(0, gap);
+    ImVec2 hue0 = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##hue", ImVec2(hueW, sq));
+    bool hueActive = ImGui::IsItemActive();
+    bool dragging = (svActive || hueActive) && io.MouseDown[0];
+    if (!dragging) PickerSyncFromRGB();
+    if (svActive && io.MouseDown[0]) {
+        g_pickS = Clampf((io.MousePos.x - sq0.x) / sq, 0.0f, 1.0f);
+        g_pickV = Clampf(1.0f - (io.MousePos.y - sq0.y) / sq, 0.0f, 1.0f);
+        PickerApplyToRGB(); g_cfgDirty = true;
+    } else if (hueActive && io.MouseDown[0]) {
+        g_pickH = Clampf((io.MousePos.y - hue0.y) / sq, 0.0f, 1.0f);
+        PickerApplyToRGB(); g_cfgDirty = true;
     }
-    float col[3] = {g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f};
-    if (ImGui::ColorEdit3("##anillo", col, ImGuiColorEditFlags_NoInputs)) {
-        g_cfg.ringR = (int)(col[0] * 255.0f + 0.5f);
-        g_cfg.ringG = (int)(col[1] * 255.0f + 0.5f);
-        g_cfg.ringB = (int)(col[2] * 255.0f + 0.5f);
+    // cuadro saturacion/valor: arriba blanco -> color del tono, abajo negro
+    float hr, hg, hb;
+    ImGui::ColorConvertHSVtoRGB(g_pickH, 1.0f, 1.0f, hr, hg, hb);
+    const ImU32 hueCol = IM_COL32((int)(hr * 255.0f), (int)(hg * 255.0f), (int)(hb * 255.0f), 255);
+    dl->AddRectFilledMultiColor(sq0, ImVec2(sq0.x + sq, sq0.y + sq),
+        IM_COL32(255, 255, 255, 255), hueCol, IM_COL32(0, 0, 0, 255), IM_COL32(0, 0, 0, 255));
+    dl->AddRect(sq0, ImVec2(sq0.x + sq, sq0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
+    const ImU32 ringU = ImGui::GetColorU32(ImVec4(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, 1.0f));
+    const ImVec2 mk(sq0.x + g_pickS * sq, sq0.y + (1.0f - g_pickV) * sq);
+    dl->AddCircleFilled(mk, H*0.011f, ringU, 24);
+    dl->AddCircle(mk, H*0.011f, IM_COL32(255, 255, 255, 255), 24, H*0.003f);
+    // barra de tono: 24 franjas del arcoiris
+    const float seg = sq / 24.0f;
+    for (int k = 0; k < 24; k++) {
+        float rr, gg, bb;
+        ImGui::ColorConvertHSVtoRGB((float)k / 24.0f, 1.0f, 1.0f, rr, gg, bb);
+        dl->AddRectFilled(ImVec2(hue0.x, hue0.y + k * seg), ImVec2(hue0.x + hueW, hue0.y + (k + 1) * seg + 0.5f),
+            IM_COL32((int)(rr * 255.0f), (int)(gg * 255.0f), (int)(bb * 255.0f), 255));
     }
+    dl->AddRect(hue0, ImVec2(hue0.x + hueW, hue0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
+    const float hy = hue0.y + g_pickH * sq;
+    dl->AddLine(ImVec2(hue0.x - H*0.004f, hy), ImVec2(hue0.x + hueW + H*0.004f, hy), IM_COL32(255, 255, 255, 255), H*0.003f);
+    // abajo: muestra del color + valores RGB y hexadecimal
+    const float readH = H * 0.045f;
+    ImVec2 sw0 = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(H*0.040f, readH));
+    dl->AddRectFilled(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), ringU, H*0.008f);
+    dl->AddRect(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), IM_COL32(255, 255, 255, 255), H*0.008f, 0, H*0.002f);
+    ImGui::SameLine(0, H*0.016f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (readH - ImGui::GetTextLineHeight()) * 0.5f);
+    char vals[64];
+    snprintf(vals, sizeof vals, "R %d   G %d   B %d    #%02X%02X%02X", g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
+    ImGui::Text("%s", vals);
     ImGui::Separator();
     if (ImGui::Button("Vista previa de la rueda", ImVec2(-1, 0))) {
         g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
@@ -631,14 +759,21 @@ static void DrawSettings(float W, float H) {
     }
     if (ImGui::Button("Restablecer todo", ImVec2(-1, 0))) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
-        SaveCfg();
+        g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
-    if (ImGui::Button("Cerrar", ImVec2(-1, 0))) { g_settings = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
+    if (ImGui::Button("Cerrar", ImVec2(-1, 0))) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
     ImGui::Text("Vista previa: toca un segmento para verlo, toca fuera para volver.");
+    // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)
+    if (g_cfgDirty && io.MouseReleased[0]) { SaveCfg(); g_cfgDirty = false; }
+    // borde en degradado azul -> morado alrededor de toda la ventana (como ARCX)
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+    AddGradientBorder(fg, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), H*0.015f, H*0.004f, PanelGradL(), PanelGradR());
     ImGui::End();
     if (g_fontUI) ImGui::PopFont();
-    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(13);
+    ImGui::PopStyleVar(8);
 }
 
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
