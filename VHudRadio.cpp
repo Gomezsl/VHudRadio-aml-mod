@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.3 2.3.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.4 2.4.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,17 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.4: PANEL FUNCIONAL + PAUSA DE VERDAD
+// - El panel NO funcionaba: Touch_hook solo pasaba los eventos de soltar/mover
+//   a ImGui cuando la rueda estaba abierta (g_open || g_cap, y g_cap nunca se
+//   pone en true). Con el panel abierto y la rueda cerrada, ImGui recibia el
+//   toque de bajar pero nunca el de soltar: los botones no se disparaban, los
+//   deslizadores no se movian y "Cerrar" no funcionaba. Ahora tambien se pasan
+//   cuando el panel o la vista previa estan abiertos.
+// - La pausa no escondia la UI: FrontEndMenuManager es una REFERENCIA (puntero
+//   al objeto), no el objeto; hay que desreferenciarla. Ademas, si el claxon
+//   se pulsa mientras el byte de menu dice 1, el offset 0x5C no es el menu en
+//   este telefono y la deteccion se desactiva sola (con mensaje en el log).
 // v2.3: APAGAR ARRIBA DEL ANILLO + PANEL USABLE + SIN UI EN PAUSA
 // - Apagar NO va en el centro: vuelve al anillo, arriba (donde Daniel lo marco
 //   con el circulo en la captura de la v2.1); el centro vuelve a ser el nombre
@@ -131,9 +142,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.3.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.4.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.3.0-beta"
+#define VHUDRADIO_VERSION "2.4.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -341,9 +352,20 @@ static int SegmentAt(float x, float y, float W, float H) {
 static bool g_inVehicle = false;
 static void* g_menuManager = nullptr;  // v2.3: global CMenuManager (FrontEndMenuManager)
 static bool g_paused = false;          // v2.3: menu de pausa (o cualquier menu) abierto
+static int g_menuCheck = 0;            // v2.4: 0 = sin verificar, 1 = offset valido, -1 = offset no valido (pausa desactivada)
 static bool MenuActive() {
-    if (!g_menuManager) return false;
+    if (!g_menuManager || g_menuCheck == -1) return false;
     return ((const unsigned char*)g_menuManager)[0x5C] != 0;  // m_bMenuActive (plugin-sdk CMenuManager)
+}
+// v2.4: FrontEndMenuManager es una REFERENCIA (puntero al objeto) en plugin-sdk:
+// GetSym devuelve la direccion del puntero, hay que desreferenciarla. Si el
+// simbolo ya es el objeto, sus primeros 8 bytes no son una direccion valida
+// del juego (son ~0 o un float desplazado), asi que se distingue solo.
+static void* ResolveMenuManager(void* sym) {
+    if (!sym) return nullptr;
+    uintptr_t v = *(uintptr_t*)sym;
+    if (v > 0x100000000ULL && v < 0x1000000000000ULL) return (void*)v;  // es una referencia: desreferenciar
+    return sym;  // el simbolo ya es el objeto
 }
 
 // ---- texturas ImGui de los iconos (se crean en el primer frame, con contexto GL) ----
@@ -434,7 +456,10 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
     if (idx == 0) {
         std::lock_guard<std::mutex> lk(g_inMtx);
         if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
-        else if (g_open || g_cap) { g_evs.push_back({0, (float)x, (float)y}); if (up) g_evs.push_back({2, 0, 0}); }
+        // v2.4: sin esto el panel no funcionaba - los eventos de soltar/mover solo
+        // llegaban a ImGui con la rueda abierta; con el panel abierto (rueda cerrada)
+        // ImGui recibia el toque de bajar pero nunca el de soltar
+        else if (g_open || g_cap || g_settings || g_preview) { g_evs.push_back({0, (float)x, (float)y}); if (up) g_evs.push_back({2, 0, 0}); }
     }
     return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
 }
@@ -626,7 +651,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // v2.3: menu de pausa abierto -> esconder toda la UI (rueda, boton, panel)
     bool wasPaused = g_paused;
     g_paused = MenuActive();
-    if (g_paused != wasPaused) Log("menu de pausa: %s", g_paused ? "abierto (UI oculta)" : "cerrado");
+    if (g_paused != wasPaused) { Log("menu de pausa: %s", g_paused ? "abierto (UI oculta)" : "cerrado"); if (g_menuCheck == 0) g_menuCheck = 1; }  // v2.4: el byte cambio: el offset es valido
     if (!g_inited) {
         if (!FindPlayerPed || !FindPlayerPed(-1)) return;
         ImGui::CreateContext(); ImGuiIO& io = ImGui::GetIO();
@@ -741,12 +766,18 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // es 1 mientras el boton esta pulsado (confirmado por el log de la v1.8).
     // Doble toque (<500 ms) abre/cierra la rueda. Si el arreglo no resuelve
     // o el widget 7 es null, el claxon sigue por zona tactil.
-    if (g_widgets && g_inVehicle && !g_paused) {
+    if (g_widgets && g_inVehicle) {
         static bool prevHornDown = false;
         static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
         void* w7 = g_widgets[kHornWidgetId];
         bool hornDown = w7 && ((const unsigned char*)w7)[84] != 0;
-        if (hornDown && !prevHornDown) {
+        // v2.4: validar el offset de pausa - el claxon solo se puede pulsar con el juego activo;
+        // si el byte de menu dice 1 mientras se pulsa, el offset 0x5C no es el menu: desactivar
+        if (hornDown && !prevHornDown && g_menuCheck == 0 && MenuActive()) {
+            g_menuCheck = -1;
+            Log("  !! m_bMenuActive=1 con el claxon pulsado: el offset 0x5C no es el menu en este telefono; pausa desactivada");
+        }
+        if (!g_paused && hornDown && !prevHornDown) {
             auto now = std::chrono::steady_clock::now();
             if (now - lastHornTap < std::chrono::milliseconds(500)) {
                 if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
@@ -813,7 +844,11 @@ extern "C" void OnModLoad() {
     else Log("  !! m_pWidgets no resolvio: no se puede leer el boton 7 directo; el claxon sigue por zona tactil/calibrada");
     SYM(g_menuManager, "FrontEndMenuManager");
     if (!g_menuManager) SYM(g_menuManager, "_ZN13CMenuManager18FrontEndMenuManagerE");
-    if (g_menuManager) Log("  menu de pausa: FrontEndMenuManager=%p (m_bMenuActive en 0x5C)", g_menuManager);
+    if (g_menuManager) {
+        void* sym = g_menuManager;
+        g_menuManager = ResolveMenuManager(g_menuManager);
+        Log("  menu de pausa: FrontEndMenuManager sim=%p obj=%p m_bMenuActive(0x5C)=%d", sym, g_menuManager, ((const unsigned char*)g_menuManager)[0x5C]);
+    }
     else Log("  !! FrontEndMenuManager no resolvio: la UI no se ocultara en el menu de pausa");
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
