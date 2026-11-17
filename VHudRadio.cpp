@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.18.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.19.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,19 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.19: PANEL DESLIZABLE CON EL DEDO + TAMANO POR DEFECTO GRANDE (NO MEDIANO)
+// - El panel ahora se puede DESLIZAR con el dedo: arrastrar sobre el fondo
+//   del panel desplaza el contenido, asi que cuando el panel es mas chico
+//   que los ajustes se llega a los de abajo. No se activa si el arrastre
+//   empezo en un control (deslizador, recuadro, boton, selector de color),
+//   en el titulo (que mueve el panel) ni en la esquina (que lo redimensiona).
+//   (ImGui ya muestra la barra de desplazamiento cuando el contenido no
+//   cabe, pero con el tacto no hay rueda del raton para usarla.)
+// - El tamano por defecto ya no es mediano (0.44 de ancho x alto automatico)
+//   sino GRANDE (0.60 x 0.90) para que se vean todos los ajustes sin
+//   desplazar. Un .ini con los valores viejos exactos (0.44 y alto
+//   automatico, o sea nunca se redimensiono o se restablecio) toma los
+//   nuevos valores; un tamano ajustado a mano se respeta.
 // v2.18: LA RUEDA VUELVE A CAMBIAR DE ESTACION + PANEL REDIMENSIONABLE EN ALTO Y ANCHO
 // - La v2.17 rompio el cambio de estacion: la rueda detectaba el segmento
 //   ("rueda: segmento 11") pero se cerraba "sin cambiar". Causa: en la v2.17
@@ -362,9 +375,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.18.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.19.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.18.0-beta"
+#define VHUDRADIO_VERSION "2.19.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -518,7 +531,7 @@ static void LoadHornPos() {
 // fondoColor=0,0,0 (color del fondo oscuro de la rueda) panelX/panelY=-1
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.60f; float panelAlto = 0.90f; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -548,7 +561,7 @@ static void SaveCfg() {
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -624,6 +637,10 @@ static void LoadCfg() {
     if (g_cfg.panelY < -1.0f) g_cfg.panelY = -1.0f; if (g_cfg.panelY > 1.0f) g_cfg.panelY = 1.0f;
     if (g_cfg.panelAncho < 0.36f) g_cfg.panelAncho = 0.36f; if (g_cfg.panelAncho > 0.70f) g_cfg.panelAncho = 0.70f;
     if (g_cfg.panelAlto < -1.0f) g_cfg.panelAlto = -1.0f; if (g_cfg.panelAlto >= 0.0f && g_cfg.panelAlto < 0.30f) g_cfg.panelAlto = 0.30f; if (g_cfg.panelAlto > 0.95f) g_cfg.panelAlto = 0.95f;
+    // v2.19: el tamano por defecto ya no es mediano (0.44 x automatico) sino
+    // grande (0.60 x 0.90); un .ini con los valores viejos exactos (nunca se
+    // redimensiono, o se restablecio) toma los nuevos valores
+    if (g_cfg.panelAncho == 0.44f && g_cfg.panelAlto < 0.0f) { g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f; }
     if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
     Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d fondoColor=%d,%d,%d panel=%.2f,%.2f ancho=%.2f alto=%.2f)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq, g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.panelX, g_cfg.panelY, g_cfg.panelAncho, g_cfg.panelAlto);
 }
@@ -1100,6 +1117,7 @@ static void DrawSettings(float W, float H) {
     float titleW = ImGui::GetContentRegionAvail().x;
     ImGui::InvisibleButton("##panelDrag", ImVec2(titleW, ts.y + H*0.004f));
     static bool panelMoved = false;
+    static bool panelResizing = false; static ImVec2 gripOff;  // v2.19: se declaran aqui (los usa el desplazamiento tactil de abajo)
     if (ImGui::IsItemActivated() && (g_cfg.panelX < 0.0f || g_cfg.panelY < 0.0f)) { ImVec2 wp = ImGui::GetWindowPos(); g_cfg.panelX = wp.x / W; g_cfg.panelY = wp.y / H; }
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 6.0f)) {
         g_cfg.panelX += io.MouseDelta.x / W;
@@ -1110,6 +1128,14 @@ static void DrawSettings(float W, float H) {
         panelMoved = true; g_cfgDirty = true;
     }
     if (ImGui::IsItemDeactivated()) { if (panelMoved) { SaveCfg(); panelMoved = false; } }
+    // v2.19: desplazamiento tactil - arrastrar con el dedo sobre el fondo del
+    // panel desplaza el contenido (cuando el panel es mas chico que los
+    // ajustes, si no no se llega a los de abajo). No se activa si el arrastre
+    // empezo en un control (deslizador, recuadro, boton, selector de color),
+    // en el titulo (que mueve el panel) ni en la esquina (que lo redimensiona).
+    if (io.MouseDown[0] && !ImGui::IsAnyItemActive() && !panelResizing && ImGui::IsWindowHovered()) {
+        ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+    }
     dl->AddText(ImVec2(titlePos.x + (titleW - ts.x) * 0.5f, titlePos.y), ImGui::GetColorU32(titleCol), title);
     ImVec2 lp = ImGui::GetCursorScreenPos();
     float lw = ImGui::GetContentRegionAvail().x;
@@ -1232,7 +1258,7 @@ static void DrawSettings(float W, float H) {
     if (PanelButton(S(STR_RESET), H)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
@@ -1251,8 +1277,6 @@ static void DrawSettings(float W, float H) {
     {
         float gripS = H * 0.035f;
         ImVec2 gp(wp.x + ws.x - gripS, wp.y + ws.y - gripS);
-        static bool panelResizing = false;
-        static ImVec2 gripOff;
         if (!panelResizing && io.MouseClicked[0] && io.MousePos.x >= gp.x && io.MousePos.x <= gp.x + gripS && io.MousePos.y >= gp.y && io.MousePos.y <= gp.y + gripS) {
             panelResizing = true;
             gripOff = ImVec2(wp.x + ws.x - io.MousePos.x, wp.y + ws.y - io.MousePos.y);
