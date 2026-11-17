@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.1 1.1.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.2 1.2.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -9,9 +9,12 @@
 //
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
-// las variantes de PC dieron FALTA (como se esperaba). Orden de cambio: RetuneRadio
-// (AudioEngine, luego TrackManager) -> StartRadio AudioEngine -> StartRadio TrackManager
-// (Eaafh, el que usa el mod GTA6Radio 4.0 en 2.10 para cambiar de estacion).
+// las variantes de PC dieron FALTA (como se esperaba).
+// v1.2: RetuneRadio NO cambia a una estacion concreta (en la prueba de Daniel la
+// radio se quedo en 10 aunque se llamo RetuneRadio(4/7/13/6/3): parece que solo
+// avanza/retrocede un paso). El cambio real es StartRadio: primero TrackManager
+// (Eaafh, el que usa el mod GTA6Radio 4.0 en 2.10), luego AudioEngine (Eaa),
+// y RetuneRadio queda solo como ultimo recurso.
 // NO usar los mangleds de PC (Ea vs Ec, Eific...). CMenuManager::RetuneRadio NO existe.
 // Por eso la v1 NUNCA llama a una funcion que no resolvio con GetSym: si RetuneRadio
 // falta, la rueda se abre, se ve, pero al soltar solo lo registra en el log.
@@ -47,9 +50,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.1.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.2.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.1.0-beta"
+#define VHUDRADIO_VERSION "1.2.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -76,13 +79,14 @@ static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
 
-// ---- claxon (v1.1): doble toque al boton de claxon del juego abre/cierra la rueda ----
-// CPad::GetPad(0) = pad del jugador; CPad::GetHorn() = true mientras suena el claxon.
-// Se sondea cada frame en DrawFrame; si GetHorn no resuelve, solo queda el boton flotante.
-typedef void* (*GetPadFn)(int);
-static GetPadFn g_getPad = nullptr;
-typedef bool (*GetHornFn)(void*);
-static GetHornFn g_getHorn = nullptr;
+// ---- claxon (v1.2): doble toque al boton de claxon del juego abre/cierra la rueda ----
+// v1.1 intento CPad::GetHorn, pero NO existe en libGTASA.so 2.10 (FALTA en el log).
+// v1.2 detecta el doble toque por la posicion del dedo: el boton de claxon del
+// juego esta en el cluster derecho de controles (zona estimada, se calibra con el
+// log de toques). El toque pasa al juego igual: el claxon suena y la rueda se abre.
+static bool InHornRegion(float x, float y, float W, float H) {
+    return x >= W*0.80f && x <= W*0.97f && y >= H*0.40f && y <= H*0.62f;
+}
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
 static int g_current = 1;       // estacion actual conocida (1..13)
@@ -133,11 +137,15 @@ static void LoadRadioTextures() {
 // ---- cambiar de estacion: solo con funciones que resolvieron ----
 static void ApplyStation(int id) {
     if (id < 1 || id > 13) return;
-    if (g_retuneAudio) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio", id, kStationName[id]); g_retuneAudio((signed char)id); g_current = id; return; }
-    if (g_retuneTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio", id, kStationName[id]); g_retuneTrack((signed char)id); g_current = id; return; }
-    if (g_startAudio) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0) (fallback)", id, kStationName[id]); g_startAudio((signed char)id, 0); g_current = id; return; }
-    if (g_startTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0) (fallback, el que usa GTA6Radio 4.0)", id, kStationName[id]); g_startTrack((signed char)id, 0, 1.0f, 0); g_current = id; return; }
-    Log("!! sin RetuneRadio ni StartRadio: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)");
+    // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
+    if (g_startTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack((signed char)id, 0, 1.0f, 0); }
+    else if (g_startAudio) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio((signed char)id, 0); }
+    else if (g_retuneAudio) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio((signed char)id); }
+    else if (g_retuneTrack) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack((signed char)id); }
+    else { Log("!! sin RetuneRadio ni StartRadio: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
+    g_current = id;
+    // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
+    if (g_getStationAudio) { int v = (int)g_getStationAudio(); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
 }
 static void RefreshCurrent() {
     if (g_getStationAudio) { int v = (int)g_getStationAudio(); if (v >= 1 && v <= 13) g_current = v; return; }
@@ -252,22 +260,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         g_inited = true; LoadRadioTextures(); RefreshCurrent();
         Log("ImGui listo (%.0fx%.0f), estacion actual: %d (%s)", (float)w, (float)h, g_current, kStationName[g_current]);
     }
-    // doble toque al claxon: abre/cierra la rueda (solo dentro del vehiculo)
-    if (g_getPad && g_getHorn && g_inVehicle) {
-        static bool prevHorn = false;
-        static auto lastTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
-        void* pad = g_getPad(0);
-        bool horn = pad ? g_getHorn(pad) : false;
-        if (horn && !prevHorn) {
-            auto now = std::chrono::steady_clock::now();
-            if (now - lastTap < std::chrono::milliseconds(500)) {
-                if (!g_open) { g_open = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
-                else { g_open = false; Log("rueda cerrada por doble claxon"); }
-            }
-            lastTap = now;
-        }
-        prevHorn = horn;
-    }
     ImGuiIO& io = ImGui::GetIO();
     static auto last = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -290,6 +282,20 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 }
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
+            // v1.2: doble toque al boton de claxon (zona derecha) abre/cierra la rueda
+            if (g_inVehicle) {
+                static int tapLogN = 0;
+                if (tapLogN < 30 && io.MousePos.x > (float)w*0.70f) { tapLogN++; Log("tap vehiculo #%d en (%.0f, %.0f)%s", tapLogN, io.MousePos.x, io.MousePos.y, InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h) ? "  <- zona claxon" : ""); }
+                if (InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
+                    static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - lastHornTap < std::chrono::milliseconds(500)) {
+                        if (!g_open) { g_open = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
+                        else { g_open = false; Log("rueda cerrada por doble claxon"); }
+                    }
+                    lastHornTap = now;
+                }
+            }
             if (!g_open && g_inVehicle) {
                 float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
                 // el toque que abre se detecta por la posicion del ultimo evento 0 (io.MousePos)
@@ -341,10 +347,7 @@ extern "C" void OnModLoad() {
     SYM(g_getStationTrack, "_ZN20CAERadioTrackManager24GetCurrentRadioStationIDEv");
     SYM(g_startAudio, "_ZN12CAudioEngine10StartRadioEaa");
     SYM(g_startTrack, "_ZN20CAERadioTrackManager10StartRadioEaafh");
-    SYM(g_getPad, "_ZN4CPad6GetPadEi");
-    SYM(g_getHorn, "_ZN4CPad7GetHornEv");
     #undef SYM
-    if (!g_getPad || !g_getHorn) Log("  !! doble claxon no disponible (CPad::GetPad/GetHorn FALTA): solo boton flotante");
     if (!g_retuneAudio && !g_retuneTrack && !g_startAudio && !g_startTrack)
         Log("!! ningun Retune/Start resolvio: la rueda se dibujara pero no cambiara la radio. Ver VHudRadioProbe.txt");
 
