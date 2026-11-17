@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.7.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.8.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,18 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.8: BUSCAR LA ENTIDAD DE AUDIO (ESCANEO DE CVehicle) + MODELO DEL VEHICULO
+// - La v2.7 no encontro el puntero de audio en 0x138/0x140/0x148 (todo ceros
+//   en 0x120..0x15F, y un flotante pequeno en 0x120): el offset del telefono
+//   es otro. Ahora se escanea CVehicle (0x100..0x380) buscando punteros a
+//   objetos reales (puntero creible + vtable creible) y se vuelca la zona de
+//   ajustes de cada uno (0x70..0xAF); el que tenga el byte 0 en un carro y -1
+//   en una bici es la entidad de audio (RadioType). Aun no bloquea nada.
+// - La ralentizacion de la v2.7 SI se mantiene: el log mostro
+//   "escala leida=0.30 activa=1", o sea que el juego no borra los valores.
+// - Nuevo: CEntity::GetModelIndex para registrar el modelo del vehiculo en
+//   el log (481 BMX, 509 bici, 510 bici de montana, 531 tractor, 596-599
+//   patrullas...) y saber si es carro o bici sin preguntar.
 // v2.7: RALENTIZACION DE VERDAD (CADA FRAME) + RADIOTYPE POR PUNTERO
 // - La v2.6 decia "ralentizacion: activada" en el log pero NO se veia nada:
 //   solo escribia los valores al abrir/cerrar y el juego los borraba en el
@@ -187,9 +199,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.7.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.8.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.7.0-beta"
+#define VHUDRADIO_VERSION "2.8.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -266,6 +278,7 @@ static const char* kStationTag[14] = { "", "Hip hop clasico", "Country", "Rock c
 // ---- funciones del juego (resueltas por GetSym, nunca llamadas si faltan) ----
 static void* (*FindPlayerPed)(int);
 static void* (*FindPlayerVehicle)(int, bool);
+static int (*g_getModelIndex)(void*) = nullptr;  // v2.8: CEntity::GetModelIndex (modelo del vehiculo)
 // Las funciones de radio son metodos C++: el primer argumento es 'this', el objeto
 // global del juego (resuelto por GetSym, el Probe ya confirmo que existen).
 static void* g_audioEngine = nullptr;   // global CAudioEngine
@@ -946,31 +959,28 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
     bool wasInVehicle = g_inVehicle;
     g_inVehicle = veh != nullptr;
-    // v2.7: diagnostico RadioType - la v2.6 leia veh+0x1D3 directo y salio
-    // todo ceros (el radioID debia ser 5): el audio NO esta dentro de CVehicle,
-    // es un PUNTERO en CVehicle (0x138 en PC) a CAEVehicleAudioEntity. Ahora se
-    // lee ese puntero (probando 0x138/0x140/0x148 por si el telefono lo mueve)
-    // y se vuelca la zona de ajustes de la entidad (0x70..0xAF) para encontrar
-    // el byte que es 0 en un carro y -1 en una bici.
+    // v2.8: diagnostico RadioType - la v2.7 no encontro el puntero de audio en
+    // 0x138/0x140/0x148 (todo ceros en 0x120..0x15F): el offset del telefono
+    // es otro. Ahora se escanea CVehicle (0x100..0x380) buscando punteros a
+    // objetos reales (puntero creible + vtable creible) y se vuelca la zona
+    // de ajustes de cada uno (0x70..0xAF); el que tenga el byte 0 en un carro
+    // y -1 en una bici es la entidad de audio (RadioType). Aun no bloquea nada.
     if (g_inVehicle && !wasInVehicle && veh) {
-        Log("  vehiculo: %p estacion=%d", veh, g_current);
-        bool found = false;
-        static const int candOffs[3] = {0x138, 0x140, 0x148};
-        for (int ci = 0; ci < 3; ci++) {
-            void* audio = *(void**)((char*)veh + candOffs[ci]);
-            if (!PlausiblePtr((uintptr_t)audio)) continue;
-            void* vt = *(void**)audio;
-            if (!PlausiblePtr((uintptr_t)vt)) { Log("  audioCand(0x%X)=%p (vtable raro, no leo)", candOffs[ci], audio); continue; }
+        int modelo = -1;
+        if (g_getModelIndex) modelo = g_getModelIndex(veh);
+        Log("  vehiculo: %p modelo=%d estacion=%d", veh, modelo, g_current);
+        int cands = 0;
+        for (int off = 0x100; off <= 0x380 && cands < 12; off += 8) {
+            void* cand = *(void**)((char*)veh + off);
+            if (!PlausiblePtr((uintptr_t)cand)) continue;
+            void* vt = *(void**)cand;
+            if (!PlausiblePtr((uintptr_t)vt)) continue;
             char hex[64*3+1];
-            HexDump(hex, sizeof hex, (char*)audio + 0x70, 64);
-            Log("  audioCand(0x%X)=%p rt(0x9B)=%d rid(0x9A)=%d bytes[0x70..0xAF]=%s", candOffs[ci], audio, (int)(signed char)((char*)audio)[0x9B], (int)(signed char)((char*)audio)[0x9A], hex);
-            found = true;
+            HexDump(hex, sizeof hex, (char*)cand + 0x70, 64);
+            Log("  ptrCand(0x%X)=%p bytes[0x70..0xAF]=%s", off, cand, hex);
+            cands++;
         }
-        if (!found) {
-            char win[64*3+1];
-            HexDump(win, sizeof win, (char*)veh + 0x120, 64);
-            Log("  audio: ningun candidato plausible; CVehicle[0x120..0x15F]=%s", win);
-        }
+        if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x380");
     }
     // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
     // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
@@ -1196,6 +1206,9 @@ extern "C" void OnModLoad() {
     #define SYM(var, name) do { *(void**)&var = (void*)aml->GetSym(h, name); Log("  %s %s", var ? "ok    " : "FALTA " , name); } while (0)
     SYM(FindPlayerPed, "_Z13FindPlayerPedi");
     SYM(FindPlayerVehicle, "_Z17FindPlayerVehicleib");
+    // v2.8: modelo del vehiculo (para saber si es carro o bici en el log)
+    SYM(g_getModelIndex, "_ZN7CEntity13GetModelIndexEv");
+    if (!g_getModelIndex) SYM(g_getModelIndex, "_ZNK7CEntity13GetModelIndexEv");
     SYM(g_retuneAudio, "_ZN12CAudioEngine11RetuneRadioEa");
     SYM(g_retuneTrack, "_ZN20CAERadioTrackManager11RetuneRadioEa");
     SYM(g_getStationAudio, "_ZN12CAudioEngine24GetCurrentRadioStationIDEv");
