@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.8 1.8.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.9 1.9.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,6 +10,13 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v1.9: CLAXON POR BOTON 7 - la sonda de la v1.8 lo confirmo: el byte 84 (0x54)
+// del widget m_pWidgets[7] es su bandera de "tocado" (1 al pulsarlo, 0 al
+// soltarlo; 16/17 volcados con 1 caen a +-1 volcado de un toque al claxon, y
+// el float de 80-83 es el tiempo que lleva pulsado en segundos). Esta version
+// lee esa bandera cada frame y el doble toque al claxon abre/cierra la rueda
+// sin depender de la posicion del boton. La zona tactil + Calibrar quedan
+// como respaldo por si el arreglo no resuelve o el widget 7 es null.
 // v1.8: BOTON 7 DIRECTO - el escaneo de la v1.7 revelo que IsTouchDown(int)
 // cuenta DEDOS (indice multi-touch 0..7), no botones: solo el 0 se encendia
 // con cualquier toque. El claxon SI es el widget 7 (GTAForums: 7 = claxon/horn),
@@ -87,9 +94,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.8.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.9.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.8.0-beta"
+#define VHUDRADIO_VERSION "1.9.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -248,14 +255,6 @@ static void ToggleWheel(const char* why) {
     else { g_open = false; Log("rueda cerrada por %s", why); }
 }
 
-// v1.8: vuelca los primeros 128 bytes de un widget (para encontrar su bandera de "tocado")
-static void DumpWidget(const char* tag, void* w, int n) {
-    if (!w) { Log("%s #%d null", tag, n); return; }
-    char hex[260]; const unsigned char* b = (const unsigned char*)w;
-    for (int i = 0; i < 128; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
-    hex[256] = 0;
-    Log("%s #%d %s", tag, n, hex);
-}
 
 // ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
 static std::mutex g_inMtx;
@@ -444,17 +443,21 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
     }
-    // v1.8: sonda del boton 7 - vuelca el widget 7 (claxon) y el 2 (acelerar,
-    // como control) cada ~0.08 s, max 120 veces. Al pulsar el claxon, algun byte
-    // del widget 7 tiene que cambiar: esa es su bandera de "tocado" y la v1.9
-    // la leera directo, sin depender de la posicion del boton.
+    // v1.9: claxon por el boton 7 directo - el byte 84 (0x54) de m_pWidgets[7]
+    // es 1 mientras el boton esta pulsado (confirmado por el log de la v1.8).
+    // Doble toque (<500 ms) abre/cierra la rueda. Si el arreglo no resuelve
+    // o el widget 7 es null, el claxon sigue por zona tactil/calibrada.
     if (g_widgets && g_inVehicle) {
-        static int wFrame = 0, wN = 0;
-        if (++wFrame % 5 == 0 && wN < 120) {
-            wN++;
-            DumpWidget("w7", g_widgets[kHornWidgetId], wN);
-            DumpWidget("w2", g_widgets[2], wN);
+        static bool prevHornDown = false;
+        static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+        void* w7 = g_widgets[kHornWidgetId];
+        bool hornDown = w7 && ((const unsigned char*)w7)[84] != 0;
+        if (hornDown && !prevHornDown) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastHornTap < std::chrono::milliseconds(500)) ToggleWheel("doble claxon (boton 7)");
+            lastHornTap = now;
         }
+        prevHornDown = hornDown;
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
     // v1.6: aviso en pantalla mientras se calibra el claxon
