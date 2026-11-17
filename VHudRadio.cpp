@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.17.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.18.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,27 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.18: LA RUEDA VUELVE A CAMBIAR DE ESTACION + PANEL REDIMENSIONABLE EN ALTO Y ANCHO
+// - La v2.17 rompio el cambio de estacion: la rueda detectaba el segmento
+//   ("rueda: segmento 11") pero se cerraba "sin cambiar". Causa: en la v2.17
+//   el soltar se encolaba SIN su posicion (solo {2}), y la v2.16 encolaba
+//   {pos, soltar} - la posicion del soltar era lo que rearmaba g_wheelTouch
+//   justo antes de aplicar el cambio. Ademas el bajar (kind-1) leia el
+//   segmento con io.MousePos, que llega con un frame de retraso (NewFrame
+//   corre DESPUES del bucle de eventos) y casi siempre es (-FLT_MAX) o la
+//   posicion del toque anterior, asi que el bajar borraba g_wheelTouch.
+//   Arreglo en dos partes: (1) el soltar vuelve a encolar su posicion
+//   ({pos, soltar}, como en la v2.16; el soltar sigue llegando siempre, el
+//   arreglo del doble toque de la v2.17 se mantiene); (2) el bucle de eventos
+//   lleva su propia posicion (g_touchX/g_touchY, actualizada en cada evento
+//   de posicion) y el bajar la usa para el segmento, la zona del claxon, el
+//   registro de toques y el boton flotante, en vez de io.MousePos.
+// - El panel ahora se redimensiona en ALTO y en ANCHO (la v2.17 solo cambiaba
+//   el ancho): el grip actualiza panelAncho y panelAlto (fraccion de H, -1 =
+//   alto automatico) y se dibuja en primer plano en la esquina de la ventana
+//   con arrastre a mano, para que nunca se pierda al hacer scroll (el
+//   contenido puede ser mas alto que el panel). "Restablecer todo" devuelve
+//   el alto a automatico.
 // v2.17: PANEL MOVIBLE Y REDIMENSIONABLE (COMO ARCX) + DOBLE TOQUE FIABLE + COLOR DE FONDO
 // - Panel movible y con ancho ajustable, como el menu de ARCX: se arrastra
 //   desde el titulo (InvisibleButton ##panelDrag + IsMouseDragging como en
@@ -341,9 +362,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.17.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.18.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.17.0-beta"
+#define VHUDRADIO_VERSION "2.18.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -497,7 +518,7 @@ static void LoadHornPos() {
 // fondoColor=0,0,0 (color del fondo oscuro de la rueda) panelX/panelY=-1
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -523,10 +544,11 @@ static void SaveCfg() {
     fprintf(f, "panelX=%.3f\n", g_cfg.panelX);
     fprintf(f, "panelY=%.3f\n", g_cfg.panelY);
     fprintf(f, "panelAncho=%.3f\n", g_cfg.panelAncho);
+    fprintf(f, "panelAlto=%.3f\n", g_cfg.panelAlto);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -578,6 +600,7 @@ static void LoadCfg() {
         else if (strcmp(k, "panelX") == 0) g_cfg.panelX = (float)atof(v);
         else if (strcmp(k, "panelY") == 0) g_cfg.panelY = (float)atof(v);
         else if (strcmp(k, "panelAncho") == 0) g_cfg.panelAncho = (float)atof(v);
+        else if (strcmp(k, "panelAlto") == 0) g_cfg.panelAlto = (float)atof(v);
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -600,8 +623,9 @@ static void LoadCfg() {
     if (g_cfg.panelX < -1.0f) g_cfg.panelX = -1.0f; if (g_cfg.panelX > 1.0f) g_cfg.panelX = 1.0f;
     if (g_cfg.panelY < -1.0f) g_cfg.panelY = -1.0f; if (g_cfg.panelY > 1.0f) g_cfg.panelY = 1.0f;
     if (g_cfg.panelAncho < 0.36f) g_cfg.panelAncho = 0.36f; if (g_cfg.panelAncho > 0.70f) g_cfg.panelAncho = 0.70f;
+    if (g_cfg.panelAlto < -1.0f) g_cfg.panelAlto = -1.0f; if (g_cfg.panelAlto >= 0.0f && g_cfg.panelAlto < 0.30f) g_cfg.panelAlto = 0.30f; if (g_cfg.panelAlto > 0.95f) g_cfg.panelAlto = 0.95f;
     if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
-    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d fondoColor=%d,%d,%d panel=%.2f,%.2f ancho=%.2f)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq, g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.panelX, g_cfg.panelY, g_cfg.panelAncho);
+    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d fondoColor=%d,%d,%d panel=%.2f,%.2f ancho=%.2f alto=%.2f)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq, g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.panelX, g_cfg.panelY, g_cfg.panelAncho, g_cfg.panelAlto);
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -616,6 +640,7 @@ static float g_dragSX = 0, g_dragSY = 0;  // v2.16: donde empezo el dedo
 static float g_dragBX = 0, g_dragBY = 0;  // v2.16: posicion del boton al empezar (fraccion de W/H)
 static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
 static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
+static float g_touchX = -1.0f, g_touchY = -1.0f;  // v2.18: ultima posicion de toque (io.MousePos llega con un frame de retraso y el bajar leia una posicion vieja)
 
 // v2.2: geometria de la rueda segun los ajustes (fondo/tamano/anillo)
 static float WheelR(float H) { return H * g_cfg.tamano / 100.0f; }
@@ -773,10 +798,12 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
     if (idx == 0) {
         std::lock_guard<std::mutex> lk(g_inMtx);
         if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
-        // v2.17: el soltar SIEMPRE se encola - antes solo llegaba con la rueda o el
-        // panel abiertos, y un toque rapido podia perder su soltar si DrawFrame aun
-        // no habia procesado el bajar (el doble toque fallaba a veces)
-        else if (up) { g_evs.push_back({2, 0, 0}); }
+        // v2.18: el soltar SIEMPRE se encola CON su posicion - la v2.17 lo
+        // encolaba sin posicion (solo {2}) y la rueda se cerraba sin cambiar:
+        // la posicion del soltar era lo que rearmaba g_wheelTouch justo antes
+        // de aplicar el cambio (como en la v2.16). El soltar sigue llegando
+        // siempre (el arreglo del doble toque de la v2.17 se mantiene).
+        else if (up) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({2, 0, 0}); }
         // v2.4: sin esto el panel no funcionaba - los eventos de mover solo
         // llegaban a ImGui con la rueda abierta; con el panel abierto (rueda cerrada)
         // ImGui recibia el toque de bajar pero nunca el de mover
@@ -1052,7 +1079,7 @@ static void DrawSettings(float W, float H) {
     // la posicion y el ancho se guardan en el .ini (panelX/panelY/panelAncho)
     if (g_cfg.panelX >= 0.0f && g_cfg.panelY >= 0.0f) ImGui::SetNextWindowPos(ImVec2(g_cfg.panelX * W, g_cfg.panelY * H), ImGuiCond_Always);
     else ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(W * g_cfg.panelAncho, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(W * g_cfg.panelAncho, g_cfg.panelAlto >= 0.0f ? H * g_cfg.panelAlto : 0), ImGuiCond_Always);  // v2.18: alto ajustable (-1 = automatico)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.014f, H*0.014f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.010f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, H*0.015f);
@@ -1205,39 +1232,46 @@ static void DrawSettings(float W, float H) {
     if (PanelButton(S(STR_RESET), H)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
     if (PanelButton(S(STR_CLOSE), H)) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
     // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)
     if (g_cfgDirty && io.MouseReleased[0]) { SaveCfg(); g_cfgDirty = false; }
-    // v2.17: esquina de redimensionado (como en el menu de ARCX): tres rayas en diagonal
-    {
-        float gripS = H * 0.035f;
-        float cw = ImGui::GetContentRegionAvail().x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cw - gripS);
-        ImVec2 gripPos = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##panelGrip", ImVec2(gripS, gripS));
-        static ImVec2 gripOff; static bool panelResized = false;
-        ImVec2 wp = ImGui::GetWindowPos();
-        if (ImGui::IsItemActivated()) gripOff = ImVec2(wp.x + ImGui::GetWindowSize().x - io.MousePos.x, 0.0f);
-        if (ImGui::IsItemActive()) {
-            g_cfg.panelAncho = Clampf((io.MousePos.x + gripOff.x - wp.x) / W, 0.36f, 0.70f);
-            panelResized = true; g_cfgDirty = true;
-        }
-        if (ImGui::IsItemDeactivated()) { if (panelResized) { SaveCfg(); panelResized = false; } }
-        const ImU32 gc = ImGui::IsItemActive() ? IM_COL32(10, 200, 255, 255) : IM_COL32(190, 192, 205, 200);
-        const float e = gripS * 0.82f;
-        for (int k = 0; k < 3; k++) {
-            const float o = e * (0.30f + 0.28f * (float)k);
-            dl->AddLine(ImVec2(gripPos.x + gripS - H*0.006f, gripPos.y + gripS - o), ImVec2(gripPos.x + gripS - o, gripPos.y + gripS - H*0.006f), gc, H*0.003f);
-        }
-    }
+    ImGui::Dummy(ImVec2(0, H*0.035f));  // v2.18: espacio para la esquina de redimensionado (el grip se dibuja en primer plano, en la esquina de la ventana)
     // borde en degradado azul alrededor de toda la ventana
     ImDrawList* fg = ImGui::GetForegroundDrawList();
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     AddGradientBorder(fg, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), H*0.015f, H*0.004f, PanelGradL(), PanelGradR());
+    // v2.18: esquina de redimensionado en la esquina de la ventana (como en ARCX):
+    // se dibuja en primer plano y se arrastra a mano para que nunca se pierda
+    // al hacer scroll (el alto es ajustable y el contenido puede ser mas alto
+    // que el panel). Cambia el ancho Y el alto (la v2.17 solo cambiaba el ancho).
+    {
+        float gripS = H * 0.035f;
+        ImVec2 gp(wp.x + ws.x - gripS, wp.y + ws.y - gripS);
+        static bool panelResizing = false;
+        static ImVec2 gripOff;
+        if (!panelResizing && io.MouseClicked[0] && io.MousePos.x >= gp.x && io.MousePos.x <= gp.x + gripS && io.MousePos.y >= gp.y && io.MousePos.y <= gp.y + gripS) {
+            panelResizing = true;
+            gripOff = ImVec2(wp.x + ws.x - io.MousePos.x, wp.y + ws.y - io.MousePos.y);
+        }
+        if (panelResizing) {
+            if (io.MouseDown[0]) {
+                g_cfg.panelAncho = Clampf((io.MousePos.x + gripOff.x - wp.x) / W, 0.36f, 0.70f);
+                g_cfg.panelAlto = Clampf((io.MousePos.y + gripOff.y - wp.y) / H, 0.30f, 0.95f);
+            } else {
+                panelResizing = false; SaveCfg(); Log("panel: ancho=%.2f alto=%.2f", g_cfg.panelAncho, g_cfg.panelAlto);
+            }
+        }
+        const ImU32 gc = panelResizing ? IM_COL32(10, 200, 255, 255) : IM_COL32(190, 192, 205, 200);
+        const float e = gripS * 0.82f;
+        for (int k = 0; k < 3; k++) {
+            const float o = e * (0.30f + 0.28f * (float)k);
+            fg->AddLine(ImVec2(gp.x + gripS - H*0.006f, gp.y + gripS - o), ImVec2(gp.x + gripS - o, gp.y + gripS - H*0.006f), gc, H*0.003f);
+        }
+    }
     ImGui::End();
     if (g_fontUI) ImGui::PopFont();
     ImGui::PopStyleColor(3);
@@ -1454,6 +1488,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     for (auto& e : evs) {
         if (e.kind == 0) {
             io.AddMousePosEvent(e.x, e.y);
+            g_touchX = e.x; g_touchY = e.y;  // v2.18: posicion propia del toque
             if (g_open && !g_settings && !g_paused) {
                 int seg = SegmentAt(e.x, e.y, (float)w, (float)h);
                 if (seg >= 1) { g_wheelTouch = true; if (seg != g_selected) { g_selected = seg; PlayClick(true); Log("rueda: segmento %d (%s)", seg, kStationName[seg]); } }
@@ -1480,20 +1515,20 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 // nada: ImGui procesa el toque en NewFrame/Render
             } else if (g_preview) {
                 // vista previa: solo se mira - tocar un segmento lo resalta, tocar fuera cierra la vista previa y vuelve el panel
-                int seg = SegmentAt(io.MousePos.x, io.MousePos.y, (float)w, (float)h);
+                int seg = SegmentAt(g_touchX, g_touchY, (float)w, (float)h);
                 if (seg >= 1) { g_selected = seg; g_wheelTouch = true; }
                 else { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada"); }
             } else if (g_open) {
                 // v1.5: tocar un segmento lo elige al instante (antes solo el arrastre elegia)
-                int seg = SegmentAt(io.MousePos.x, io.MousePos.y, (float)w, (float)h);
+                int seg = SegmentAt(g_touchX, g_touchY, (float)w, (float)h);
                 if (seg >= 1) { g_selected = seg; g_wheelTouch = true; PlayClick(true); Log("rueda: segmento %d (%s) [toque]", seg, kStationName[seg]); }
                 else g_wheelTouch = false;  // toque fuera del anillo: al soltar se cierra sin cambiar
             }
             // v1.2: doble toque al boton de claxon (zona derecha) abre/cierra la rueda
             if (g_inVehicle && !g_settings && !g_paused) {
                 static int tapLogN = 0;
-                if (tapLogN < 30 && io.MousePos.x > (float)w*0.70f) { tapLogN++; Log("tap vehiculo #%d en (%.0f, %.0f)%s", tapLogN, io.MousePos.x, io.MousePos.y, InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h) ? "  <- zona claxon" : ""); }
-                if (InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
+                if (tapLogN < 30 && g_touchX > (float)w*0.70f) { tapLogN++; Log("tap vehiculo #%d en (%.0f, %.0f)%s", tapLogN, g_touchX, g_touchY, InHornRegion(g_touchX, g_touchY, (float)w, (float)h) ? "  <- zona claxon" : ""); }
+                if (InHornRegion(g_touchX, g_touchY, (float)w, (float)h)) {
                     static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
                     if (now - lastHornTap < std::chrono::milliseconds(500)) {
@@ -1508,9 +1543,9 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             // v2.16: sin radio no hay boton ni panel; el toque se resuelve al SOLTAR
             // (si el dedo se movio, fue un arrastre para mover el boton, no un toque)
             if (!g_open && !g_preview && !g_settings && !g_paused && g_inVehicle && g_hasRadio) {
-                if (FloatBtnHit(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
+                if (FloatBtnHit(g_touchX, g_touchY, (float)w, (float)h)) {
                     g_btnDrag = true; g_btnMoved = false;
-                    g_dragSX = io.MousePos.x; g_dragSY = io.MousePos.y;
+                    g_dragSX = g_touchX; g_dragSY = g_touchY;
                     ImVec2 ip, lp, ls; float bs;
                     FloatBtnGeom((float)w, (float)h, ip, lp, ls, bs);
                     g_dragBX = (g_cfg.btnX >= 0.0f ? g_cfg.btnX : ip.x / (float)w);
