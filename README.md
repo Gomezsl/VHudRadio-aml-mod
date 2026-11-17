@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.11.0-beta
+# VHud Radio Wheel 2.12.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -21,11 +21,11 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   cada frame mientras está abierta (la v2.6 solo los escribía al abrir y el
   juego los borraba), con un registro en el log cada segundo para confirmar
   que la escala se mantiene en 0.30.
-- Radio en vehículos sin radio (bicis, tractores, patrullas): al entrar a
-  un vehículo se lee su entidad de audio (veh+0x458 o 0x1B0); si su radioID
-  (0x9A) es 0 o -1 el vehículo no tiene radio y la rueda NO se abre (ni por
-  claxon ni por zona) y el botón flotante no cambia de estación. El panel de
-  personalización sigue disponible. El log registra la lectura y el bloqueo.
+- Vehículos sin radio (bicis, tractores, patrullas): el bloqueo por radioID
+  se quitó en esta versión porque ese byte cambia en un mismo vehículo y
+  bloqueaba carros. Ahora el log vuelca los primeros 64 bytes del vehículo
+  al entrar para encontrar su modelo (m_nModelIndex) y bloquear por modelo
+  en una versión posterior. La rueda abre en todos los vehículos, como antes.
 - La pausa se detecta por varias señales (CMenuManager, CTimer::m_UserPause
   y CMenuManager::DrawFrontEnd) para que la UI no se vea en el menú de pausa.
 
