@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.6.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.7.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,19 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.7: RALENTIZACION DE VERDAD (CADA FRAME) + RADIOTYPE POR PUNTERO
+// - La v2.6 decia "ralentizacion: activada" en el log pero NO se veia nada:
+//   solo escribia los valores al abrir/cerrar y el juego los borraba en el
+//   siguiente frame (como el opcode 015D de CLEO, la velocidad se pone en un
+//   bucle, no una vez). Ahora se escriben EN CADA FRAME mientras la rueda
+//   esta abierta (bandera + escala del slow-motion + escala de tiempo), y al
+//   cerrar se restauran los valores que habia antes. El log lee la escala
+//   cada segundo para ver si el juego la esta borrando.
+// - RadioType: la v2.6 leia veh+0x1D3 directo y salio todo ceros (el radioID
+//   debia ser 5): el audio NO esta dentro de CVehicle, es un PUNTERO en
+//   CVehicle (0x138 en PC) a CAEVehicleAudioEntity. Ahora se lee ese puntero
+//   (probando 0x138/0x140/0x148) y se vuelca la zona de ajustes de la entidad.
+// - La pausa YA funciona (el log de la v2.6 la detecto por m_UserPause=1).
 // v2.6: PANEL PROPIO AZUL + 2 COLORES + RALENTIZACION + PAUSA DE VERDAD + RADIOTYPE
 // - La pausa SEGUIA sin esconder la UI en la v2.5: ahora se detecta por varias
 //   senales a la vez (byte 0x5C de CMenuManager, CTimer::m_UserPause /
@@ -174,9 +187,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.6.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.7.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.6.0-beta"
+#define VHUDRADIO_VERSION "2.7.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -911,6 +924,19 @@ static void DrawSettings(float W, float H) {
     ImGui::PopStyleVar(4);
 }
 
+// v2.7: un puntero es creible si, quitandole el byte de etiqueta (0xb4...),
+// cae en el rango del heap del juego (0x100000000..0x1000000000000)
+static bool PlausiblePtr(uintptr_t v) {
+    uintptr_t t = v & 0x00FFFFFFFFFFFFFFULL;
+    return t > 0x100000000ULL && t < 0x1000000000000ULL;
+}
+// v2.7: vuelca n bytes en hexadecimal a un buffer (para el diagnostico)
+static void HexDump(char* out, size_t outSz, const void* p, int n) {
+    const unsigned char* b = (const unsigned char*)p;
+    int w = 0;
+    for (int i = 0; i < n && w < (int)outSz - 4; i++) w += snprintf(out + w, outSz - (size_t)w, "%02X ", b[i]);
+    if (w > 0 && w < (int)outSz) out[w - 1] = 0;  // quitar el ultimo espacio
+}
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_failed) return;
     EGLContext ctx = eglGetCurrentContext();
@@ -920,15 +946,31 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
     bool wasInVehicle = g_inVehicle;
     g_inVehicle = veh != nullptr;
-    // v2.6: diagnostico RadioType - al entrar a un vehiculo, registrar el byte
-    // candidato (PC: CVehicle 0x138 + audio 0x80 + radio 0x1B = 0x1D3) y una
-    // ventana de bytes alrededor, mas la estacion actual, para confirmar el
-    // offset del telefono antes de bloquear la rueda en bicis/tractores/patrullas
+    // v2.7: diagnostico RadioType - la v2.6 leia veh+0x1D3 directo y salio
+    // todo ceros (el radioID debia ser 5): el audio NO esta dentro de CVehicle,
+    // es un PUNTERO en CVehicle (0x138 en PC) a CAEVehicleAudioEntity. Ahora se
+    // lee ese puntero (probando 0x138/0x140/0x148 por si el telefono lo mueve)
+    // y se vuelca la zona de ajustes de la entidad (0x70..0xAF) para encontrar
+    // el byte que es 0 en un carro y -1 en una bici.
     if (g_inVehicle && !wasInVehicle && veh) {
-        const unsigned char* v = (const unsigned char*)veh;
-        char win[16*3+1]; int n = 0;
-        for (int i = 0; i < 16; i++) n += snprintf(win + n, sizeof win - (size_t)n, "%02X ", v[0x1C8 + i]);
-        Log("  vehiculo: %p radioType(0x1D3)=%d radioID(0x1D2)=%d estacion=%d bytes[0x1C8..0x1D7]=%s", veh, (int)(signed char)v[0x1D3], (int)v[0x1D2], g_current, win);
+        Log("  vehiculo: %p estacion=%d", veh, g_current);
+        bool found = false;
+        static const int candOffs[3] = {0x138, 0x140, 0x148};
+        for (int ci = 0; ci < 3; ci++) {
+            void* audio = *(void**)((char*)veh + candOffs[ci]);
+            if (!PlausiblePtr((uintptr_t)audio)) continue;
+            void* vt = *(void**)audio;
+            if (!PlausiblePtr((uintptr_t)vt)) { Log("  audioCand(0x%X)=%p (vtable raro, no leo)", candOffs[ci], audio); continue; }
+            char hex[64*3+1];
+            HexDump(hex, sizeof hex, (char*)audio + 0x70, 64);
+            Log("  audioCand(0x%X)=%p rt(0x9B)=%d rid(0x9A)=%d bytes[0x70..0xAF]=%s", candOffs[ci], audio, (int)(signed char)((char*)audio)[0x9B], (int)(signed char)((char*)audio)[0x9A], hex);
+            found = true;
+        }
+        if (!found) {
+            char win[64*3+1];
+            HexDump(win, sizeof win, (char*)veh + 0x120, 64);
+            Log("  audio: ningun candidato plausible; CVehicle[0x120..0x15F]=%s", win);
+        }
     }
     // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
     // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
@@ -939,21 +981,41 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_paused != wasPaused) { Log("menu de pausa: %s (byte=%d user=%d code=%d frontEnd=%d)", g_paused ? "abierto (UI oculta)" : "cerrado", MenuActive() ? 1 : 0, (g_userPause && *g_userPause) ? 1 : 0, (g_codePause && *g_codePause) ? 1 : 0, fe ? 1 : 0); if (g_menuCheck == 0) g_menuCheck = 1; }  // v2.4: el byte cambio: el offset es valido
     // v2.6: diagnostico del menu - si los bytes del objeto cambian, registrar que offsets
     if (g_menuManager) MenuSnapCheck();
-    // v2.6: ralentizacion estilo GTA V - al abrir la rueda el juego va lento,
-    // al cerrarla vuelve a velocidad normal (mecanismo propio del juego)
+    // v2.7: ralentizacion estilo GTA V - la v2.6 solo escribia los valores al
+    // abrir/cerrar y el juego los borraba en el siguiente frame (el log decia
+    // "activada" pero no se veia nada). Ahora se escriben EN CADA FRAME
+    // mientras la rueda esta abierta: bandera + escala del slow-motion del
+    // juego + la escala de tiempo directamente. Al cerrar se restauran los
+    // valores que habia antes de abrir.
     if (g_slowActive || g_timeScale) {
         static bool slowOn = false;
-        if (g_open != slowOn) {
-            slowOn = g_open;
-            if (g_slowActive && g_slowScale) {
-                *g_slowActive = slowOn;
-                if (slowOn) *g_slowScale = 0.3f;
-                Log("ralentizacion: %s (slow-motion del juego)", slowOn ? "activada" : "desactivada");
-            } else if (g_timeScale) {
-                *g_timeScale = slowOn ? 0.3f : 1.0f;
-                Log("ralentizacion: %s (escala %.2f)", slowOn ? "activada" : "desactivada", *g_timeScale);
-            }
+        static float savedTimeScale = 1.0f, savedSlowScale = 0.3f;
+        static bool savedSlowActive = false;
+        static int slowTick = 0;
+        if (g_open && !slowOn) {
+            slowOn = true;
+            if (g_timeScale) savedTimeScale = *g_timeScale;
+            if (g_slowScale) savedSlowScale = *g_slowScale;
+            if (g_slowActive) savedSlowActive = *g_slowActive;
+            Log("ralentizacion: activada (guardada escala=%.2f)", savedTimeScale);
+        } else if (!g_open && slowOn) {
+            slowOn = false;
+            if (g_slowActive) *g_slowActive = savedSlowActive;
+            if (g_slowScale) *g_slowScale = savedSlowScale;
+            if (g_timeScale) *g_timeScale = savedTimeScale;
+            Log("ralentizacion: desactivada (restaurada escala=%.2f)", savedTimeScale);
         }
+        if (slowOn) {
+            if (g_slowActive) *g_slowActive = true;
+            if (g_slowScale) *g_slowScale = 0.3f;
+            if (g_timeScale) *g_timeScale = 0.3f;
+            // diagnostico: cada segundo, leer lo que el juego tiene puesto
+            // (si la escala dice 1.00, el juego esta borrando nuestros valores)
+            if (++slowTick >= 60) {
+                slowTick = 0;
+                Log("ralentizacion: escala leida=%.2f activa=%d (deberia ser 0.30)", g_timeScale ? *g_timeScale : -1.0f, (g_slowActive && *g_slowActive) ? 1 : 0);
+            }
+        } else slowTick = 0;
     }
     if (!g_inited) {
         if (!FindPlayerPed || !FindPlayerPed(-1)) return;
