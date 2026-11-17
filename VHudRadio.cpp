@@ -173,7 +173,8 @@ static bool InHornRegion(float x, float y, float W, float H) {
 }
 static void LoadHornPos() {
     // v2.1: horn_pos.txt tambien se busca primero en files del juego
-    for (const std::string& hp : {g_gameFilesDir + "/vhud/horn_pos.txt", "/storage/emulated/0/vhud/horn_pos.txt"}) {
+    const std::string hpPaths[2] = {g_gameFilesDir + "/vhud/horn_pos.txt", "/storage/emulated/0/vhud/horn_pos.txt"};
+    for (const std::string& hp : hpPaths) {
         FILE* f = fopen(hp.c_str(), "r");
         if (!f) continue;
         float x = 0, y = 0;
