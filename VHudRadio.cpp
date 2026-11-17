@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.11.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.12.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,16 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.12: QUITAR EL BLOQUEO POR rid + BUSCAR EL MODELO DEL VEHICULO
+// - La v2.11 salio AL REVES: bloqueo dos carros y dejo pasar la bici. El log
+//   lo explica: rid(0x9A) NO es estable, en un mismo carro dio 0, 2, 0, 0 en
+//   lecturas seguidas (es un byte que cambia, no la radio asignada). Asi que
+//   el bloqueo por rid se quita por completo: la rueda vuelve a abrir en
+//   todos los vehiculos como en la v2.10. El audio queda solo como
+//   diagnostico (registra rt/rid solo cuando cambian).
+// - Para bloquear de forma fiable se usara el MODELO del vehiculo (estable:
+//   bici 481/509/510, tractor 531, patrulla 596-599). Esta version vuelca los
+//   primeros 64 bytes del vehiculo al entrar, para encontrar m_nModelIndex.
 // v2.11: BLOQUEO DE LA RUEDA EN VEHICULOS SIN RADIO
 // - La v2.10 confirmo el discriminador: en una bici rid(0x9A)=0 (sin radio)
 //   y en un carro rid=2; rt(0x9B)=0 en los dos, asi que el que distingue es
@@ -226,9 +236,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.11.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.12.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.11.0-beta"
+#define VHUDRADIO_VERSION "2.12.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -443,7 +453,6 @@ static int SegmentAt(float x, float y, float W, float H) {
     return seg;
 }
 static bool g_inVehicle = false;
-static bool g_hasRadio = true;  // v2.11: el vehiculo tiene radio (rid 1..12); false en bicis/tractores/patrullas
 static void* g_menuManager = nullptr;  // v2.3: global CMenuManager (FrontEndMenuManager)
 static bool g_paused = false;          // v2.3: menu de pausa (o cualquier menu) abierto
 static int g_menuCheck = 0;            // v2.4: 0 = sin verificar, 1 = offset valido, -1 = offset no valido (pausa desactivada)
@@ -994,7 +1003,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
     bool wasInVehicle = g_inVehicle;
     g_inVehicle = veh != nullptr;
-    if (g_inVehicle && !wasInVehicle) g_hasRadio = false;  // v2.11: sin radio hasta que la lectura de audio lo confirme
     // v2.9: diagnostico RadioType - la v2.8 SE CERRO al entrar a un auto de
     // policia: el escaneo leyo un valor (0x23F800000) que "parecia" un puntero
     // (cae en el rango 2^32..2^48) pero no esta mapeado, y al leerlo el juego
@@ -1003,6 +1011,15 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // (0x100..0x500) y hasta 20 candidatos. Aun no bloquea nada.
     if (g_inVehicle && !wasInVehicle && veh) {
         Log("  vehiculo: %p estacion=%d", veh, g_current);
+        // v2.12: volcar los primeros 64 bytes del vehiculo para buscar
+        // m_nModelIndex (el modelo es estable por vehiculo: bici 481/509/510,
+        // tractor 531, patrulla 596-599). El bloqueo por rid fallo porque ese
+        // byte cambia; el modelo no cambia.
+        {
+            char hex[64*3+1];
+            HexDump(hex, sizeof hex, veh, 64);
+            Log("  vehiculo bytes[0x00..0x3F]=%s", hex);
+        }
         int cands = 0;
         for (int off = 0x100; off <= 0x500 && cands < 20; off += 8) {
             void* cand = *(void**)((char*)veh + off);
@@ -1018,19 +1035,18 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         }
         if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x500");
     }
-    // v2.11: la lectura de audio ahora BLOQUEA la rueda - la v2.10 confirmo
-    // que en una bici rid(0x9A)=0 (sin radio) y en un carro rid=2; rt(0x9B)=0
-    // en los dos, asi que el que distingue es rid. Si rid es 1..12 el vehiculo
-    // tiene radio; si es 0 o -1 no tiene. Al entrar se asume sin radio hasta
-    // que la lectura lo confirme; si en 120 frames no aparece el puntero se
-    // asume que si tiene (no dejar la rueda bloqueada por un fallo de lectura).
+    // v2.12: diagnostico de audio SIN bloqueo - la v2.11 demostro que rid(0x9A)
+    // NO es estable (en un mismo carro dio 0, 2, 0, 0) y bloqueo carros y dejo
+    // pasar la bici, al reves de lo que se queria. Se registra rt/rid solo
+    // cuando cambian, para entender que es ese byte. El bloqueo por modelo
+    // (m_nModelIndex) se hara cuando se encuentre su offset (ver el volcado
+    // de los primeros bytes del vehiculo en el bloque de escaneo).
     {
         static void* lastVeh = nullptr;
-        static bool audioLogged = false;
-        static int noAudioFrames = 0;
-        if (!g_inVehicle) { lastVeh = nullptr; audioLogged = false; noAudioFrames = 0; }
-        else if (veh && veh != lastVeh) { lastVeh = veh; audioLogged = false; noAudioFrames = 0; }
-        if (g_inVehicle && veh && !audioLogged) {
+        static int lastRt = -999, lastRid = -999;
+        if (!g_inVehicle) { lastVeh = nullptr; lastRt = -999; lastRid = -999; }
+        else if (veh && veh != lastVeh) { lastVeh = veh; lastRt = -999; lastRid = -999; }
+        if (g_inVehicle && veh) {
             int aoffs[2] = {0x458, 0x1B0};
             for (int i = 0; i < 2; i++) {
                 void* aud = *(void**)((char*)veh + aoffs[i]);
@@ -1039,16 +1055,11 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 if (!IsMapped((char*)aud + 0x9A) || !IsMapped((char*)aud + 0x9B)) continue;
                 int rt = (int)*(signed char*)((char*)aud + 0x9B);
                 int rid = (int)*(signed char*)((char*)aud + 0x9A);
-                Log("  audio(0x%X): rt(0x9B)=%d rid(0x9A)=%d", aoffs[i], rt, rid);
-                g_hasRadio = (rid >= 1 && rid <= 12);
-                if (!g_hasRadio) Log("  rueda bloqueada: vehiculo sin radio (rid=%d)", rid);
-                audioLogged = true;
+                if (rt != lastRt || rid != lastRid) {
+                    Log("  audio(0x%X): rt(0x9B)=%d rid(0x9A)=%d", aoffs[i], rt, rid);
+                    lastRt = rt; lastRid = rid;
+                }
                 break;
-            }
-            if (!audioLogged && ++noAudioFrames > 120) {
-                g_hasRadio = true;
-                audioLogged = true;
-                Log("  audio: sin puntero tras 120 frames, asumiendo radio");
             }
         }
     }
@@ -1159,8 +1170,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     auto now = std::chrono::steady_clock::now();
                     if (now - lastHornTap < std::chrono::milliseconds(500)) {
                         if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
-                        else if (g_hasRadio) ToggleWheel("doble claxon");
-                        else Log("claxon en vehiculo sin radio: rueda bloqueada");
+                        else ToggleWheel("doble claxon");
                     }
                     lastHornTap = now;
                 }
@@ -1192,7 +1202,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     }
     // v2.1: un solo toque al boton flotante = siguiente estacion (si no llega un segundo toque en 400 ms)
     if (g_btnPending) {
-        if (g_open || g_settings || g_paused || !g_hasRadio) g_btnPending = false;  // rueda, panel, pausa o sin radio: no cambiar de estacion
+        if (g_open || g_settings || g_paused) g_btnPending = false;  // rueda, panel o pausa: no cambiar de estacion
         else if (std::chrono::steady_clock::now() - g_btnPendingAt > std::chrono::milliseconds(400)) {
             g_btnPending = false;
             int next = g_current % 13 + 1;
@@ -1227,8 +1237,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             auto now = std::chrono::steady_clock::now();
             if (now - lastHornTap < std::chrono::milliseconds(500)) {
                 if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
-                else if (!g_settings && g_hasRadio) ToggleWheel("doble claxon (boton 7)");
-                else if (!g_settings) Log("claxon en vehiculo sin radio: rueda bloqueada");
+                else if (!g_settings) ToggleWheel("doble claxon (boton 7)");
             }
             lastHornTap = now;
         }
