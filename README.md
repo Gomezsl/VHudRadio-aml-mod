@@ -1,1 +1,10 @@
-IyBWSHVkIFJhZGlvIFByb2JlIDEuMC4wCgpNaW5pLXBsdWdpbiBBTUwgcXVlIE5PIGNhbWJpYSBuYWRhOiBzb2xvIHBydWViYSBzaSBsb3Mgc8OtbWJvbG9zIGRlIHJhZGlvCmV4aXN0ZW4gZW4gbGliR1RBU0Euc28gMi4xMCBhcm02NCB5IGVzY3JpYmUgb2svRkFMVEEgZW4KYFZIdWRSYWRpb1Byb2JlLnR4dGAgKGp1bnRvIGFsIGp1ZWdvLCBlbiBgQW5kcm9pZC9kYXRhL2NvbS5yb2Nrc3RhcmdhbWVzLmd0YXNhL2ZpbGVzL2ApLgoKU2UgY29tcGlsYSBpZ3VhbCBxdWUgQVJDWCAoR2l0SHViIEFjdGlvbnMgKyBOREspIHkgc2FsZSBgbGliVkh1ZFJhZGlvUHJvYmU2NC5zb2AuClNlIG1ldGUgZW4gbGEgY2FycGV0YSBkZSBBTUwgY29tbyBjdWFscXVpZXIgcGx1Z2luLCBzZSBlbnRyYSBhbCBqdWVnbyB1bmEgdmV6LApzZSBzYWxlLCB5IHNlIG1hbmRhIGVsIHR4dC4gQ29uIGVzbyBzZSBhcm1hIGxhIHYxIGRlIGxhIHJ1ZWRhIHNvbG8gY29uIGxvcwpzw61tYm9sb3MgcXVlIGRpamVyb24gb2ssIHNpbiBhZGl2aW5hci4K
+# VHud Radio Probe 1.0.0
+
+Mini-plugin AML que NO cambia nada: solo prueba si los símbolos de radio
+existen en libGTASA.so 2.10 arm64 y escribe ok/FALTA en
+`VHudRadioProbe.txt` (junto al juego, en `Android/data/com.rockstargames.gtasa/files/`).
+
+Se compila igual que ARCX (GitHub Actions + NDK) y sale `libVHudRadioProbe64.so`.
+Se mete en la carpeta de AML como cualquier plugin, se entra al juego una vez,
+se sale, y se manda el txt. Con eso se arma la v1 de la rueda solo con los
+símbolos que dijeron ok, sin adivinar.
