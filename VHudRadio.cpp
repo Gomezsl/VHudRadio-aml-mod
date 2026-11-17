@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.3 1.3.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.4 1.4.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -56,9 +56,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.3.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.4.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.3.0-beta"
+#define VHUDRADIO_VERSION "1.4.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -89,13 +89,17 @@ static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(void*, signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
 
-// ---- claxon (v1.2): doble toque al boton de claxon del juego abre/cierra la rueda ----
+// ---- claxon: doble toque al boton de claxon del juego abre/cierra la rueda ----
 // v1.1 intento CPad::GetHorn, pero NO existe en libGTASA.so 2.10 (FALTA en el log).
-// v1.2 detecta el doble toque por la posicion del dedo: el boton de claxon del
-// juego esta en el cluster derecho de controles (zona estimada, se calibra con el
-// log de toques). El toque pasa al juego igual: el claxon suena y la rueda se abre.
+// v1.2 uso una zona estimada (y 0.40-0.62H) y fallo: los toques reales de Daniel
+// (log v1.3, toques #1-7) caen en (2258, 735) en 2408x1080, o sea (0.938W, 0.683H),
+// justo DEBAJO de la zona estimada. v1.4: circulo centrado en ese punto real,
+// radio 0.07H (~76px). Los toques del boton flotante quedan a >=105px del centro,
+// fuera del circulo. El toque pasa al juego igual: el claxon suena y la rueda se abre.
 static bool InHornRegion(float x, float y, float W, float H) {
-    return x >= W*0.80f && x <= W*0.97f && y >= H*0.40f && y <= H*0.62f;
+    float cx = W*0.938f, cy = H*0.683f, r = H*0.07f;
+    float dx = x - cx, dy = y - cy;
+    return dx*dx + dy*dy <= r*r;
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -318,6 +322,13 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         } else if (e.kind == 2) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             if (mouseDown && g_open) { ApplyStation(g_selected); Log("rueda cerrada -> %d (%s)", g_selected, kStationName[g_selected]); g_open = false; }
             mouseDown = false; }
+    }
+    // v1.4: el juego actualiza la estacion leida con un poco de retraso tras StartRadio
+    // (en el log v1.3 la lectura iba una estacion atrasada); re-leer cada ~0.5 s para
+    // que el icono del boton flotante no se quede en la estacion anterior.
+    if (g_inVehicle && !g_open) {
+        static int frameN = 0;
+        if (++frameN % 30 == 0) RefreshCurrent();
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
