@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.19.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.20.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,21 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.20: DESPLAZAMIENTO POR DIRECCION + TAMANO POR DEFECTO MEDIANO OTRA VEZ
+// - La v2.19 solo desplazaba si el arrastre empezaba en el fondo, pero casi
+//   todo el panel son deslizadores ("las barras") y se movian en vez de
+//   bajar; solo se podia por la barra de la esquina, que es tediosa. Ahora
+//   el desplazamiento es por DIRECCION: si el arrastre es mas vertical que
+//   horizontal, desplaza el panel; si es mas horizontal, ajusta el
+//   deslizador. El deslizador guarda su valor al pulsar y, si el arrastre
+//   acaba siendo desplazamiento, lo restaura (asi no se mueve al empezar a
+//   desplazar). Con el selector de color abierto no hay desplazamiento por
+//   direccion (sus arrastres son en vertical y son del color).
+// - El tamano por defecto vuelve a ser MEDIANO (0.44 de ancho x alto
+//   automatico); la v2.19 lo habia puesto grande (0.60 x 0.90) y a Daniel
+//   no le gusto. Un .ini con los valores grandes de la v2.19 (0.60 x 0.90,
+//   nunca se redimensiono o se restablecio en la v2.19) vuelve al mediano;
+//   un tamano ajustado a mano se respeta.
 // v2.19: PANEL DESLIZABLE CON EL DEDO + TAMANO POR DEFECTO GRANDE (NO MEDIANO)
 // - El panel ahora se puede DESLIZAR con el dedo: arrastrar sobre el fondo
 //   del panel desplaza el contenido, asi que cuando el panel es mas chico
@@ -375,9 +390,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.19.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.20.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.19.0-beta"
+#define VHUDRADIO_VERSION "2.20.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -531,7 +546,7 @@ static void LoadHornPos() {
 // fondoColor=0,0,0 (color del fondo oscuro de la rueda) panelX/panelY=-1
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.60f; float panelAlto = 0.90f; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -561,7 +576,7 @@ static void SaveCfg() {
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -637,10 +652,10 @@ static void LoadCfg() {
     if (g_cfg.panelY < -1.0f) g_cfg.panelY = -1.0f; if (g_cfg.panelY > 1.0f) g_cfg.panelY = 1.0f;
     if (g_cfg.panelAncho < 0.36f) g_cfg.panelAncho = 0.36f; if (g_cfg.panelAncho > 0.70f) g_cfg.panelAncho = 0.70f;
     if (g_cfg.panelAlto < -1.0f) g_cfg.panelAlto = -1.0f; if (g_cfg.panelAlto >= 0.0f && g_cfg.panelAlto < 0.30f) g_cfg.panelAlto = 0.30f; if (g_cfg.panelAlto > 0.95f) g_cfg.panelAlto = 0.95f;
-    // v2.19: el tamano por defecto ya no es mediano (0.44 x automatico) sino
-    // grande (0.60 x 0.90); un .ini con los valores viejos exactos (nunca se
-    // redimensiono, o se restablecio) toma los nuevos valores
-    if (g_cfg.panelAncho == 0.44f && g_cfg.panelAlto < 0.0f) { g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f; }
+    // v2.20: el tamano por defecto vuelve a ser mediano (0.44 x automatico);
+    // un .ini con los valores grandes de la v2.19 (0.60 x 0.90, nunca se
+    // redimensiono o se restablecio en la v2.19) vuelve al mediano
+    if (g_cfg.panelAncho == 0.60f && g_cfg.panelAlto == 0.90f) { g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; }
     if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
     Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d fondoColor=%d,%d,%d panel=%.2f,%.2f ancho=%.2f alto=%.2f)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq, g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.panelX, g_cfg.panelY, g_cfg.panelAncho, g_cfg.panelAlto);
 }
@@ -658,6 +673,7 @@ static float g_dragBX = 0, g_dragBY = 0;  // v2.16: posicion del boton al empeza
 static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
 static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
 static float g_touchX = -1.0f, g_touchY = -1.0f;  // v2.18: ultima posicion de toque (io.MousePos llega con un frame de retraso y el bajar leia una posicion vieja)
+static bool g_panelScrolling = false;  // v2.20: el arrastre actual es un desplazamiento del panel (no un deslizador)
 
 // v2.2: geometria de la rueda segun los ajustes (fondo/tamano/anillo)
 static float WheelR(float H) { return H * g_cfg.tamano / 100.0f; }
@@ -1041,7 +1057,12 @@ static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const cha
     bool active = ImGui::IsItemActive();
     ImGuiIO& io = ImGui::GetIO();
     bool changed = false;
-    if (active && io.MouseDown[0]) {
+    // v2.20: valor antes de pulsar (si el arrastre acaba siendo un
+    // desplazamiento del panel, se restaura para que la barra no se mueva)
+    static int* savedPtr = nullptr; static int savedVal = 0;
+    if (ImGui::IsItemActivated()) { savedPtr = v; savedVal = *v; }
+    if (g_panelScrolling && savedPtr == v) *v = savedVal;
+    if (active && io.MouseDown[0] && !g_panelScrolling) {
         float f = (io.MousePos.x - p0.x) / w;
         int nv = vmin + (int)(f * (float)(vmax - vmin) + 0.5f);
         if (nv < vmin) nv = vmin; if (nv > vmax) nv = vmax;
@@ -1128,12 +1149,24 @@ static void DrawSettings(float W, float H) {
         panelMoved = true; g_cfgDirty = true;
     }
     if (ImGui::IsItemDeactivated()) { if (panelMoved) { SaveCfg(); panelMoved = false; } }
-    // v2.19: desplazamiento tactil - arrastrar con el dedo sobre el fondo del
-    // panel desplaza el contenido (cuando el panel es mas chico que los
-    // ajustes, si no no se llega a los de abajo). No se activa si el arrastre
-    // empezo en un control (deslizador, recuadro, boton, selector de color),
-    // en el titulo (que mueve el panel) ni en la esquina (que lo redimensiona).
-    if (io.MouseDown[0] && !ImGui::IsAnyItemActive() && !panelResizing && ImGui::IsWindowHovered()) {
+    // v2.20: desplazamiento tactil por direccion - si el arrastre es mas
+    // vertical que horizontal, desplaza el panel; si no, es un deslizador.
+    // La v2.19 solo desplazaba si el arrastre empezaba en el fondo, pero
+    // casi todo el panel son deslizadores y se movian en vez de bajar (solo
+    // se podia por la barra de la esquina, que es tediosa). Con el selector
+    // de color abierto no hay desplazamiento por direccion (sus arrastres
+    // son en vertical y son del color). Tampoco si el arrastre es el titulo
+    // (que mueve el panel) o la esquina (que lo redimensiona).
+    static bool panelScrolling = false; static bool scrollDecided = false; static ImVec2 scrollStart;
+    bool titleActive = ImGui::IsItemActive();  // el ultimo item es el titulo
+    if (io.MouseClicked[0]) { scrollStart = io.MousePos; scrollDecided = false; panelScrolling = false; g_panelScrolling = false; }
+    if (io.MouseDown[0] && !scrollDecided && !titleActive && !panelResizing && g_pickTarget < 0) {
+        float dx = io.MousePos.x - scrollStart.x, dy = io.MousePos.y - scrollStart.y;
+        if (fabsf(dy) > H*0.02f && fabsf(dy) > fabsf(dx)) { panelScrolling = true; scrollDecided = true; g_panelScrolling = true; }
+        else if (fabsf(dx) > H*0.02f) { scrollDecided = true; }
+    }
+    if (!io.MouseDown[0]) { panelScrolling = false; scrollDecided = false; g_panelScrolling = false; }
+    if (panelScrolling) {
         ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
     }
     dl->AddText(ImVec2(titlePos.x + (titleW - ts.x) * 0.5f, titlePos.y), ImGui::GetColorU32(titleCol), title);
@@ -1258,7 +1291,7 @@ static void DrawSettings(float W, float H) {
     if (PanelButton(S(STR_RESET), H)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.60f; g_cfg.panelAlto = 0.90f;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
