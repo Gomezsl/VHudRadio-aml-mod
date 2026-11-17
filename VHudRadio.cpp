@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.2 2.2.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.3 2.3.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,15 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.3: APAGAR ARRIBA DEL ANILLO + PANEL USABLE + SIN UI EN PAUSA
+// - Apagar NO va en el centro: vuelve al anillo, arriba (donde Daniel lo marco
+//   con el circulo en la captura de la v2.1); el centro vuelve a ser el nombre
+//   y el genero de la estacion. El anillo vuelve a tener 13 segmentos.
+// - Panel redisenado para usarse al tacto: letra grande (32 px), etiquetas
+//   ENCIMA de los deslizadores, colores rapidos (8 botones grandes) + color
+//   propio, botones a todo lo ancho y ventana mas estrecha.
+// - La rueda, el boton y el panel ya no se ven en el menu de pausa del juego
+//   (se lee CMenuManager::m_bMenuActive, en 0x5C segun plugin-sdk).
 // v2.2: APAGAR AL CENTRO + BOTON CON ETIQUETA + SONIDO + PANEL DE PERSONALIZACION
 // - La estacion 13 (Radio Off) ya no va en el anillo: va AL CENTRO de la rueda
 //   (tocarla apaga la radio); el anillo queda con 12 estaciones.
@@ -122,9 +131,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.2.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.3.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.2.0-beta"
+#define VHUDRADIO_VERSION "2.3.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -252,321 +261,64 @@ static void LoadHornPos() {
 // anillo=0,210,255 (color del anillo de seleccion, 0..255)
 struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; };
 static WheelCfg g_cfg;
-static bool g_settings = false;   // v2.2: panel de personalizacion abierto
-static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
-static std::string CfgPath() { return g_gameFilesDir + "/configs/VHudRadio.ini"; }
-static void SaveCfg() {
-    mkdir((g_gameFilesDir + "/configs").c_str(), 0777);
-    FILE* f = fopen(CfgPath().c_str(), "w");
-    if (!f) return;
-    fprintf(f, "[VHudRadio]\n");
-    fprintf(f, "fondo=%d\n", g_cfg.fondo);
-    fprintf(f, "tamano=%d\n", g_cfg.tamano);
-    fprintf(f, "anillo=%d,%d,%d\n", g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
-    fclose(f);
-}
-static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
-    FILE* f = fopen(CfgPath().c_str(), "r");
-    if (!f) { SaveCfg(); return; }  // no existe: crearlo con los valores por defecto
-    char line[256];
-    while (fgets(line, sizeof line, f)) {
-        char* eq = strchr(line, '=');
-        if (!eq) continue;
-        *eq = 0;
-        char* k = line;
-        while (*k == ' ' || *k == '\t') k++;
-        size_t kl = strlen(k);
-        while (kl > 0 && (k[kl-1] == ' ' || k[kl-1] == '\t' || k[kl-1] == '\n' || k[kl-1] == '\r')) k[--kl] = 0;
-        const char* v = eq + 1;
-        if (strcmp(k, "fondo") == 0) g_cfg.fondo = atoi(v);
-        else if (strcmp(k, "tamano") == 0) g_cfg.tamano = atoi(v);
-        else if (strcmp(k, "anillo") == 0) {
-            int r = 0, g = 0, b = 0;
-            if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.ringR = r; g_cfg.ringG = g; g_cfg.ringB = b; }
-        }
-    }
-    fclose(f);
-    if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
-    if (g_cfg.tamano < 25) g_cfg.tamano = 25; if (g_cfg.tamano > 45) g_cfg.tamano = 45;
-    if (g_cfg.ringR < 0) g_cfg.ringR = 0; if (g_cfg.ringR > 255) g_cfg.ringR = 255;
-    if (g_cfg.ringG < 0) g_cfg.ringG = 0; if (g_cfg.ringG > 255) g_cfg.ringG = 255;
-    if (g_cfg.ringB < 0) g_cfg.ringB = 0; if (g_cfg.ringB > 255) g_cfg.ringB = 255;
-}
-
-static std::string g_vhudDir;   // /storage/emulated/0/vhud
-static int g_current = 1;       // estacion actual conocida (1..13)
-static int g_selected = 1;      // segmento bajo el dedo mientras la rueda esta abierta
-static bool g_open = false;
-static bool g_btnPending = false;  // v2.1: un toque al boton flotante esperando (siguiente estacion si no hay segundo toque)
-static std::chrono::steady_clock::time_point g_btnPendingAt;
-static bool g_wheelTouch = false;   // v1.5: el toque actual empezo/sobre el anillo de la rueda
-static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe cerrarla al soltar
-
-// v2.2: geometria de la rueda segun los ajustes (fondo/tamano/anillo)
-static float WheelR(float H) { return H * g_cfg.tamano / 100.0f; }
-static float WheelRi(float H) { return WheelR(H) * 0.83f; }
-static float WheelIconS(float H) { return WheelR(H) * 0.175f; }
-static ImU32 RingColor() { return IM_COL32(g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, 255); }
-
-// v2.2: segmento bajo un punto (13 = centro: apagar la radio; 0 = fuera de la rueda)
-static int SegmentAt(float x, float y, float W, float H) {
-    float dx = x - W*0.5f, dy = y - H*0.5f;
-    float dist = sqrtf(dx*dx + dy*dy);
-    if (dist < H*0.11f) return 13;  // centro = apagar la radio
-    float Ri = WheelRi(H), s = WheelIconS(H);
-    if (dist < Ri - s*1.3f || dist > Ri + s*1.3f) return 0;
-    float ang = atan2f(dy, dx) + 3.14159265f/2; if (ang < 0) ang += 2*3.14159265f;
-    int seg = (int)(ang / (2*3.14159265f/12.0f)) + 1; if (seg > 12) seg = 12;
-    return seg;
-}
-static bool g_inVehicle = false;
-
-// ---- texturas ImGui de los iconos (se crean en el primer frame, con contexto GL) ----
-static GLuint g_tex[14] = {0};  // 1..13 + radio_current en [0] como marco
-static bool g_texTried = false;
-static GLuint LoadPngToGl(const std::string& path) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return 0;
-    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 4*1024*1024) { fclose(f); return 0; }
-    std::vector<unsigned char> buf((size_t)len);
-    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
-    fclose(f);
-    int w = 0, h = 0, ch = 0;
-    unsigned char* px = stbi_load_from_memory(buf.data(), (int)buf.size(), &w, &h, &ch, 4);
-    if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return 0; }
-    GLint last = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &last);
-    GLuint tex = 0; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
-    glBindTexture(GL_TEXTURE_2D, (GLuint)last);
-    stbi_image_free(px);
-    return glGetError() == GL_NO_ERROR ? tex : 0;
-}
-static void LoadRadioTextures() {
-    if (g_texTried) return; g_texTried = true;
-    // v2.1: iconos dentro de files del juego (Android/data/com.rockstargames.gtasa/files/vhud/radio/);
-    // si no estan ahi, se usa la carpeta de antes (/storage/emulated/0/vhud/radio/).
-    std::string dir = g_gameFilesDir + "/vhud/radio";
-    { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/radio"; }
-    Log("carpeta de iconos: %s/ (radio_1.png ... radio_13.png)", dir.c_str());
-    int ok = 0;
-    for (int i = 1; i <= 13; i++) {
-        std::string p = dir + "/radio_" + std::to_string(i) + ".png";
-        g_tex[i] = LoadPngToGl(p);
-        if (g_tex[i]) ok++;
-        Log("  %s radio_%d.png", g_tex[i] ? "ok    " : "FALTA ", i);
-    }
-    g_tex[0] = LoadPngToGl(dir + "/radio_current.png");
-    Log("  %s radio_current.png", g_tex[0] ? "ok    " : "FALTA ");
-    Log("iconos de radio cargados: %d/13 (+marco %s)", ok, g_tex[0] ? "si" : "no");
-    if (ok == 0) Log("  !! sin iconos: copia vhud/radio/ a files del juego o a /storage/emulated/0/vhud/ (ver README)");
-}
-
-// ---- cambiar de estacion: solo con funciones que resolvieron ----
-static void ApplyStation(int id) {
-    if (id < 1 || id > 13) return;
-    // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
-    // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
-    if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
-    else if (g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
-    else if (g_retuneAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio(g_audioEngine, (signed char)id); }
-    else if (g_retuneTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack(g_trackManager, (signed char)id); }
-    else { Log("!! sin Retune/Start con su objeto global: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
-    g_current = id;
-    // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
-    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
-}
-static void RefreshCurrent() {
-    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); if (v >= 1 && v <= 13) g_current = v; return; }
-    if (g_getStationTrack && g_trackManager) { int v = (int)g_getStationTrack(g_trackManager); if (v >= 1 && v <= 13) g_current = v; }
-}
-
-// Abrir/cerrar la rueda con periodo refractario: el doble toque al claxon llega
-// por DOS caminos a la vez (widget 7 y zona tactil) y sin esto la abriria y la
-// cerraria en el mismo instante.
-static void ToggleWheel(const char* why) {
-    static auto lastToggle = std::chrono::steady_clock::now() - std::chrono::seconds(5);
-    auto now = std::chrono::steady_clock::now();
-    if (now - lastToggle < std::chrono::milliseconds(600)) return;
-    lastToggle = now;
-    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); PlayClick(false); }
-    else { g_open = false; Log("rueda cerrada por %s", why); }
-}
-
-
-// ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
-static std::mutex g_inMtx;
-struct TouchEv { int kind; float x, y; };
-static std::vector<TouchEv> g_evs;
-static bool g_cap = false;
-static uintptr_t (*Touch_orig)(int, int, int, int);
-static uintptr_t Touch_hook(int type, int idx, int x, int y) {
-    bool down = (type == 2), up = (type == 1 || type == 4);
-    if (idx == 0) {
-        std::lock_guard<std::mutex> lk(g_inMtx);
-        if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
-        else if (g_open || g_cap) { g_evs.push_back({0, (float)x, (float)y}); if (up) g_evs.push_back({2, 0, 0}); }
-    }
-    return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
-}
-
-// ---- dibujo ImGui justo antes de eglSwapBuffers (patron ARCX) ----
-static bool g_inited = false, g_failed = false;
-static EGLBoolean (*Swap_orig)(EGLDisplay, EGLSurface);
-static bool PatchGot(const char* libName, const char* sym, void* repl, void** orig) {
-    struct Ctx { const char* lib; uintptr_t base; const ElfW(Phdr)* ph; int n; } c = {libName, 0, nullptr, 0};
-    dl_iterate_phdr([](struct dl_phdr_info* i, size_t, void* d) -> int {
-        Ctx* x = (Ctx*)d;
-        if (i->dlpi_name && strstr(i->dlpi_name, x->lib)) { x->base = i->dlpi_addr; x->ph = i->dlpi_phdr; x->n = i->dlpi_phnum; return 1; }
-        return 0; }, &c);
-    if (!c.ph) return false;
-    const ElfW(Dyn)* dyn = nullptr;
-    for (int i = 0; i < c.n; i++) if (c.ph[i].p_type == PT_DYNAMIC) dyn = (const ElfW(Dyn)*)(c.base + c.ph[i].p_vaddr);
-    if (!dyn) return false;
-    auto fix = [&](uintptr_t p) { return p < c.base ? p + c.base : p; };
-    const ElfW(Sym)* symtab = nullptr; const char* strtab = nullptr;
-    const ElfW(Rela)* jmprel = nullptr; size_t jmpsz = 0; const ElfW(Rela)* rela = nullptr; size_t relasz = 0;
-    for (; dyn->d_tag != DT_NULL; dyn++) switch (dyn->d_tag) {
-        case DT_SYMTAB: symtab = (const ElfW(Sym)*)fix(dyn->d_un.d_ptr); break;
-        case DT_STRTAB: strtab = (const char*)fix(dyn->d_un.d_ptr); break;
-        case DT_JMPREL: jmprel = (const ElfW(Rela)*)fix(dyn->d_un.d_ptr); break;
-        case DT_PLTRELSZ: jmpsz = dyn->d_un.d_val; break;
-        case DT_RELA: rela = (const ElfW(Rela)*)fix(dyn->d_un.d_ptr); break;
-        case DT_RELASZ: relasz = dyn->d_un.d_val; break;
-        default: break; }
-    if (!symtab || !strtab) return false;
-    auto scan = [&](const ElfW(Rela)* r, size_t bytes) -> bool {
-        if (!r) return false;
-        for (size_t k = 0; k < bytes / sizeof(ElfW(Rela)); k++) {
-            unsigned type = ELF64_R_TYPE(r[k].r_info); unsigned si = ELF64_R_SYM(r[k].r_info);
-            if ((type != 1026 && type != 1025) || si == 0) continue;
-            if (strcmp(strtab + symtab[si].st_name, sym) != 0) continue;
-            void** slot = (void**)(c.base + r[k].r_offset);
-            long pg = sysconf(_SC_PAGESIZE); uintptr_t page = (uintptr_t)slot & ~((uintptr_t)pg - 1);
-            if (mprotect((void*)page, (size_t)pg, PROT_READ | PROT_WRITE) != 0) return false;
-            *orig = *slot; *slot = repl; return true; }
-        return false; };
-    return scan(jmprel, jmpsz) || scan(rela, relasz);
-}
-
-static ImFont* g_fontTitle = nullptr;  // v2.1: letra del centro (Roboto Condensed negrita del sistema)
-
-// v2.2: geometria del boton flotante (icono + etiqueta con estacion y genero).
-// El icono va abajo a la derecha y la etiqueta a su izquierda; el toque vale
-// en todo el conjunto (icono o etiqueta).
-static void FloatBtnGeom(float W, float H, ImVec2& iconPos, ImVec2& labelPos, ImVec2& labelSize, float& bs) {
-    bs = H * 0.06f;
-    iconPos = ImVec2(W - bs * 1.15f, H * 0.86f);  // v2.2: mas abajo
-    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
-    float ns = H * 0.022f, ts = H * 0.018f;
-    ImVec2 nsz = font->CalcTextSizeA(ns, FLT_MAX, 0.0f, kStationName[g_current], nullptr);
-    ImVec2 tsz = font->CalcTextSizeA(ts, FLT_MAX, 0.0f, kStationTag[g_current], nullptr);
-    float lw = (nsz.x > tsz.x ? nsz.x : tsz.x) + H * 0.02f;
-    float lh = ns + ts + H * 0.02f;
-    labelSize = ImVec2(lw, lh);
-    labelPos = ImVec2(iconPos.x - H * 0.015f - lw, iconPos.y + bs * 0.5f - lh * 0.5f);
-}
-static bool FloatBtnHit(float x, float y, float W, float H) {
-    ImVec2 ip, lp, ls; float bs;
-    FloatBtnGeom(W, H, ip, lp, ls, bs);
-    if (x >= ip.x && x <= ip.x + bs && y >= ip.y && y <= ip.y + bs) return true;
-    if (x >= lp.x && x <= lp.x + ls.x && y >= lp.y && y <= lp.y + ls.y) return true;
-    return false;
-}
-
-static void DrawWheel(float W, float H) {
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
-    // v2.2: boton flotante abajo a la derecha + etiqueta con estacion y genero
-    ImVec2 bp, lp, ls; float bs;
-    FloatBtnGeom(W, H, bp, lp, ls, bs);
-    float ns = H * 0.022f, ts = H * 0.018f;
-    dl->AddRectFilled(lp, ImVec2(lp.x + ls.x, lp.y + ls.y), IM_COL32(0, 0, 0, 140), H * 0.01f);
-    dl->AddText(font, ns, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f), IM_COL32(255,255,255,255), kStationName[g_current]);
-    dl->AddText(font, ts, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f + ns), IM_COL32(200,225,235,230), kStationTag[g_current]);
-    if (g_tex[g_current]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[g_current], bp, ImVec2(bp.x + bs, bp.y + bs));
-    else { dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(30,30,40,220)); }
-    dl->AddCircle(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(255,255,255,200), 0, 2.0f);
-
-    if (!g_open) return;
-    // v2.2: rueda estilo GTA V - 12 logos en circulo + apagar la radio en el centro
-    ImVec2 c(W * 0.5f, H * 0.5f);
-    float R = WheelR(H);
-    float Ri = WheelRi(H);
-    float s = WheelIconS(H);
-    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, g_cfg.fondo * 255 / 100));  // oscuridad ajustable
-    dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
-    for (int i = 1; i <= 12; i++) {
-        float a0 = -3.14159265f/2 + (i-1) * 2*3.14159265f/12.0f;
-        float a1 = a0 + 2*3.14159265f/12.0f;
-        float am = (a0 + a1) * 0.5f;
-        ImVec2 p(c.x + cosf(am) * Ri, c.y + sinf(am) * Ri);
-        bool sel = (i == g_selected);
-        float si = sel ? s * 1.12f : s;
-        if (g_tex[i]) {
-            ImVec4 tint = sel ? ImVec4(1, 1, 1, 1) : ImVec4(0.55f, 0.55f, 0.55f, 0.75f);
-            dl->AddImage((ImTextureID)(uintptr_t)g_tex[i], ImVec2(p.x-si, p.y-si), ImVec2(p.x+si, p.y+si), ImVec2(0, 0), ImVec2(1, 1), ImColor(tint));
-        } else dl->AddCircleFilled(p, si*0.5f, IM_COL32(255,255,255,120));
-        if (sel) dl->AddCircle(p, si, RingColor(), 48, 3.5f);              // anillo de seleccion (color ajustable)
-        else if (i == g_current) dl->AddCircle(p, si, IM_COL32(255, 255, 255, 220), 48, 2.0f);
-    }
-    // centro: apagar la radio (estacion 13)
-    float cs = H * 0.085f;
-    if (g_tex[13]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[13], ImVec2(c.x-cs, c.y-cs), ImVec2(c.x+cs, c.y+cs));
-    else dl->AddCircleFilled(c, cs, IM_COL32(30,30,40,220));
-    if (g_selected == 13) dl->AddCircle(c, cs, RingColor(), 48, 3.5f);
-    else if (g_current == 13) dl->AddCircle(c, cs, IM_COL32(255, 255, 255, 220), 48, 2.0f);
-    // nombre de la estacion seleccionada + genero, debajo del icono central
-    float nameSize = H * 0.05f, tagSize = H * 0.024f;
-    const char* name = kStationName[g_selected];
-    const char* tag = kStationTag[g_selected];
-    ImVec2 nsz = font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, name, nullptr);
-    ImVec2 tsz = font->CalcTextSizeA(tagSize, FLT_MAX, 0.0f, tag, nullptr);
-    float ty = c.y + cs + H * 0.015f;
-    dl->AddText(font, nameSize, ImVec2(c.x - nsz.x*0.5f, ty), IM_COL32(255,255,255,255), name);
-    dl->AddText(font, tagSize, ImVec2(c.x - tsz.x*0.5f, ty + nsz.y + H * 0.002f), IM_COL32(200,225,235,230), tag);
-    // v2.2: marca de vista previa
-    if (g_preview) {
-        const char* pv = "VISTA PREVIA";
-        ImVec2 ps = font->CalcTextSizeA(H * 0.03f, FLT_MAX, 0.0f, pv, nullptr);
-        dl->AddText(font, H * 0.03f, ImVec2(c.x - ps.x*0.5f, H * 0.03f), IM_COL32(255,255,255,230), pv);
-    }
-}
-
-// v2.2: panel de personalizacion (se abre con doble toque al boton flotante)
+static bool g_settings = false;   // v2.3: panel de personalizacion - controles grandes y legibles al tacto
 static void DrawSettings(float W, float H) {
     ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(W * 0.55f, 0), ImGuiCond_Always);
-    if (!ImGui::Begin("Personalizar rueda de radio", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) { ImGui::End(); return; }
-    ImGui::Text("Fondo, tamano y color del anillo. Se guardan en configs/VHudRadio.ini");
-    ImGui::SliderInt("Oscuridad del fondo", &g_cfg.fondo, 0, 100, "%d%%");
-    ImGui::SliderInt("Tamano de la rueda", &g_cfg.tamano, 25, 45, "%d%%");
+    ImGui::SetNextWindowSize(ImVec2(W * 0.42f, 0), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.02f, H*0.02f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.012f, H*0.015f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(H*0.015f, H*0.012f));
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, H*0.03f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.5f, 0.5f));
+    if (g_fontUI) ImGui::PushFont(g_fontUI);
+    bool opened = ImGui::Begin("Personalizar rueda de radio", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+    if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleVar(5); return; }
+    ImGui::Text("Fondo, tamano y color del anillo.");
+    ImGui::Text("Se guardan en configs/VHudRadio.ini");
+    ImGui::Separator();
+    ImGui::Text("Oscuridad del fondo");
+    ImGui::SliderInt("##fondo", &g_cfg.fondo, 0, 100, "%d%%");
+    ImGui::Text("Tamano de la rueda");
+    ImGui::SliderInt("##tamano", &g_cfg.tamano, 25, 45, "%d%%");
+    ImGui::Text("Color del anillo");
+    // colores rapidos: botones grandes, faciles de tocar
+    static const ImVec4 kQuick[8] = {
+        ImVec4(0.0f, 0.82f, 1.0f, 1.0f), ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
+        ImVec4(1.0f, 0.2f, 0.2f, 1.0f), ImVec4(0.2f, 0.9f, 0.2f, 1.0f),
+        ImVec4(1.0f, 0.85f, 0.0f, 1.0f), ImVec4(1.0f, 0.3f, 0.9f, 1.0f),
+        ImVec4(1.0f, 0.55f, 0.0f, 1.0f), ImVec4(0.3f, 0.4f, 1.0f, 1.0f)};
+    for (int qi = 0; qi < 8; qi++) {
+        if (qi > 0) ImGui::SameLine();
+        ImGui::PushID(qi);
+        if (ImGui::ColorButton("##q", kQuick[qi], ImGuiColorEditFlags_NoTooltip, ImVec2(H*0.045f, H*0.045f))) {
+            g_cfg.ringR = (int)(kQuick[qi].x * 255.0f + 0.5f);
+            g_cfg.ringG = (int)(kQuick[qi].y * 255.0f + 0.5f);
+            g_cfg.ringB = (int)(kQuick[qi].z * 255.0f + 0.5f);
+        }
+        ImGui::PopID();
+    }
     float col[3] = {g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f};
-    if (ImGui::ColorEdit3("Color del anillo", col)) {
+    if (ImGui::ColorEdit3("##anillo", col, ImGuiColorEditFlags_NoInputs)) {
         g_cfg.ringR = (int)(col[0] * 255.0f + 0.5f);
         g_cfg.ringG = (int)(col[1] * 255.0f + 0.5f);
         g_cfg.ringB = (int)(col[2] * 255.0f + 0.5f);
     }
-    if (ImGui::Button("Vista previa de la rueda")) {
+    ImGui::Separator();
+    if (ImGui::Button("Vista previa de la rueda", ImVec2(-1, 0))) {
         g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
         PlayClick(false);
         Log("vista previa de la rueda");
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Restablecer todo")) {
+    if (ImGui::Button("Restablecer todo", ImVec2(-1, 0))) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
         SaveCfg();
         Log("ajustes restablecidos");
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cerrar")) { g_settings = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
+    if (ImGui::Button("Cerrar", ImVec2(-1, 0))) { g_settings = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
     ImGui::Text("Vista previa: toca un segmento para verlo, toca fuera para volver.");
     ImGui::End();
+    if (g_fontUI) ImGui::PopFont();
+    ImGui::PopStyleVar(5);
 }
 
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
@@ -576,6 +328,10 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     EGLint w = 0, h = 0; eglQuerySurface(dpy, surf, EGL_WIDTH, &w); eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
     if (w < 200 || h < 200) return;
     g_inVehicle = FindPlayerVehicle && FindPlayerVehicle(-1, false) != nullptr;
+    // v2.3: menu de pausa abierto -> esconder toda la UI (rueda, boton, panel)
+    bool wasPaused = g_paused;
+    g_paused = MenuActive();
+    if (g_paused != wasPaused) Log("menu de pausa: %s", g_paused ? "abierto (UI oculta)" : "cerrado");
     if (!g_inited) {
         if (!FindPlayerPed || !FindPlayerPed(-1)) return;
         ImGui::CreateContext(); ImGuiIO& io = ImGui::GetIO();
@@ -584,11 +340,14 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         ImGui::StyleColorsDark();
         // v2.1: letra mas parecida a GTA V - Roboto Condensed negrita del sistema
         io.Fonts->AddFontDefault();
+        const char* titlePath = nullptr;
         for (const char* fp : {"/system/fonts/RobotoCondensed-Bold.ttf", "/system/fonts/Roboto-Bold.ttf", "/system/fonts/DroidSans-Bold.ttf"}) {
             g_fontTitle = io.Fonts->AddFontFromFileTTF(fp, 64.0f);
-            if (g_fontTitle) { Log("fuente del titulo: %s", fp); break; }
+            if (g_fontTitle) { titlePath = fp; Log("fuente del titulo: %s", fp); break; }
         }
         if (!g_fontTitle) Log("  !! sin fuente del sistema: el titulo usa la letra de ImGui");
+        // v2.3: segunda talla de la misma fuente para el panel (letra legible al tacto)
+        if (titlePath) g_fontUI = io.Fonts->AddFontFromFileTTF(titlePath, 32.0f);
         if (!ImGui_ImplOpenGL3_Init(nullptr)) { Log("ImGui_ImplOpenGL3_Init fallo"); g_failed = true; return; }
         g_inited = true; LoadRadioTextures(); RefreshCurrent();
         Log("ImGui listo (%.0fx%.0f), estacion actual: %d (%s)", (float)w, (float)h, g_current, kStationName[g_current]);
@@ -605,13 +364,15 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     for (auto& e : evs) {
         if (e.kind == 0) {
             io.AddMousePosEvent(e.x, e.y);
-            if (g_open && !g_settings) {
+            if (g_open && !g_settings && !g_paused) {
                 int seg = SegmentAt(e.x, e.y, (float)w, (float)h);
                 if (seg >= 1) { g_wheelTouch = true; if (seg != g_selected) { g_selected = seg; PlayClick(true); Log("rueda: segmento %d (%s)", seg, kStationName[seg]); } }
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
-            // v2.2: con el panel abierto, los toques son del panel (ImGui); nada de rueda/claxon/boton
-            if (g_settings) {
+            // v2.3: en el menu de pausa los toques son del juego; con el panel abierto, del panel (ImGui)
+            if (g_paused) {
+                // nada: el menu de pausa procesa el toque
+            } else if (g_settings) {
                 // nada: ImGui procesa el toque en NewFrame/Render
             } else if (g_preview) {
                 // vista previa: solo se mira - tocar un segmento lo resalta, tocar fuera cierra la vista previa y vuelve el panel
@@ -625,7 +386,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 else g_wheelTouch = false;  // toque fuera del anillo: al soltar se cierra sin cambiar
             }
             // v1.2: doble toque al boton de claxon (zona derecha) abre/cierra la rueda
-            if (g_inVehicle && !g_settings) {
+            if (g_inVehicle && !g_settings && !g_paused) {
                 static int tapLogN = 0;
                 if (tapLogN < 30 && io.MousePos.x > (float)w*0.70f) { tapLogN++; Log("tap vehiculo #%d en (%.0f, %.0f)%s", tapLogN, io.MousePos.x, io.MousePos.y, InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h) ? "  <- zona claxon" : ""); }
                 if (InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
@@ -639,7 +400,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 }
             }
             // v2.2: boton flotante - un toque = siguiente estacion; dos toques = panel de personalizacion
-            if (!g_open && !g_preview && !g_settings && g_inVehicle) {
+            if (!g_open && !g_preview && !g_settings && !g_paused && g_inVehicle) {
                 if (FloatBtnHit(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
                     static auto lastBtnTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
@@ -656,7 +417,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             }
         } else if (e.kind == 2) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             if (g_ignoreNextUp) { g_ignoreNextUp = false; mouseDown = false; }  // v1.5: el toque que abrio la rueda no la cierra
-            else if (mouseDown && g_open) {
+            else if (mouseDown && g_open && !g_paused) {
                 if (g_preview) { /* v2.2: en vista previa no se aplica ni se cierra */ }
                 else if (g_wheelTouch) { ApplyStation(g_selected); Log("rueda cerrada -> %d (%s)", g_selected, kStationName[g_selected]); g_open = false; }
                 else { Log("rueda cerrada sin cambiar"); g_open = false; }
@@ -665,7 +426,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     }
     // v2.1: un solo toque al boton flotante = siguiente estacion (si no llega un segundo toque en 400 ms)
     if (g_btnPending) {
-        if (g_open || g_settings) g_btnPending = false;  // la rueda se abrio o el panel: no cambiar de estacion
+        if (g_open || g_settings || g_paused) g_btnPending = false;  // rueda, panel o pausa: no cambiar de estacion
         else if (std::chrono::steady_clock::now() - g_btnPendingAt > std::chrono::milliseconds(400)) {
             g_btnPending = false;
             int next = g_current % 13 + 1;
@@ -685,7 +446,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // es 1 mientras el boton esta pulsado (confirmado por el log de la v1.8).
     // Doble toque (<500 ms) abre/cierra la rueda. Si el arreglo no resuelve
     // o el widget 7 es null, el claxon sigue por zona tactil.
-    if (g_widgets && g_inVehicle) {
+    if (g_widgets && g_inVehicle && !g_paused) {
         static bool prevHornDown = false;
         static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
         void* w7 = g_widgets[kHornWidgetId];
@@ -703,8 +464,8 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (!g_inVehicle) { g_open = false; g_preview = false; g_settings = false; }  // v2.2: fuera del coche se cierra todo
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
-    if (g_inVehicle) DrawWheel((float)w, (float)h);
-    if (g_settings) DrawSettings((float)w, (float)h);
+    if (g_inVehicle && !g_paused) DrawWheel((float)w, (float)h);
+    if (g_settings && !g_paused) DrawSettings((float)w, (float)h);
     ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
@@ -750,6 +511,10 @@ extern "C" void OnModLoad() {
     SYM(g_widgets, "_ZN15CTouchInterface10m_pWidgetsE");
     if (g_widgets) Log("  widgets: m_pWidgets=%p w0=%p w2=%p w7=%p", (void*)g_widgets, g_widgets[0], g_widgets[2], g_widgets[7]);
     else Log("  !! m_pWidgets no resolvio: no se puede leer el boton 7 directo; el claxon sigue por zona tactil/calibrada");
+    SYM(g_menuManager, "FrontEndMenuManager");
+    if (!g_menuManager) SYM(g_menuManager, "_ZN13CMenuManager18FrontEndMenuManagerE");
+    if (g_menuManager) Log("  menu de pausa: FrontEndMenuManager=%p (m_bMenuActive en 0x5C)", g_menuManager);
+    else Log("  !! FrontEndMenuManager no resolvio: la UI no se ocultara en el menu de pausa");
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
     if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
