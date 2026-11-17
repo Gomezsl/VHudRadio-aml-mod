@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.12.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.13.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,30 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.13: DIAGNOSTICO DE RADIO POR MODELO (SIN BLOQUEO TODAVIA)
+// - Daniel paso el chat con otra IA (Google Modo IA). Su idea final es buena:
+//   preguntarle al juego por el RadioType OFICIAL del modelo (tabla interna)
+//   en vez de una lista manual. Pero sus offsets estaban mal:
+//   * m_nModelIndex NO esta en 0x26 (ni en 0x2A, que dijo primero): por los
+//     headers plugin-sdk (CPlaceable: vtable 8 + placement 16 + m_matrix 8 =
+//     0x20; CEntity: m_pRwObject 8 en 0x20, flags 4 en 0x28, RandomSeed 2 en
+//     0x2C) el modelo esta en 0x2E en ARM64 (PC 0x22 + 3 punteros x 4).
+//     Su error: no conto que m_pRwObject tambien es puntero y se ensancha.
+//   * m_nRadioType dentro de tVehicleAudioSettings NO esta en +0x22: esta en
+//     +0x1B (VALIDATE_OFFSET del header). Su struct leeria otro byte.
+//   * GetVehicleAudioSettings NO aparece en el header plugin-sdk; lo que SI
+//     existe es la tabla global gVehicleAudioSettings[232] (indice =
+//     modelId - 400, entrada 0x24 bytes). Se prueban las dos vias por GetSym
+//     y el log dice ok/FALTA.
+//   * Esa IA dijo haber leido nuestro codigo, pero en su propio chat los
+//     archivos salen como "no disponibles": sus numeros de linea son
+//     inventados, no de nuestro archivo. Y sus primeras respuestas
+//     (CPad/ShockButtonL, IsTouchDown(7,0,0)) ya las probamos y no sirven en
+//     este telefono: el claxon ya funciona por el byte 84 del widget 7.
+// - Esta version SOLO registra: los 3 candidatos de modelo (0x26/0x2A/0x2E),
+//   y el RadioType de la tabla del juego para el modelo 0x2E. NO bloquea
+//   nada: el log de una prueba (carro + bici) dira que offset es el modelo
+//   real y que RadioType tiene cada modelo; con eso la v2.14 bloquea.
 // v2.12: QUITAR EL BLOQUEO POR rid + BUSCAR EL MODELO DEL VEHICULO
 // - La v2.11 salio AL REVES: bloqueo dos carros y dejo pasar la bici. El log
 //   lo explica: rid(0x9A) NO es estable, en un mismo carro dio 0, 2, 0, 0 en
@@ -236,9 +260,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.12.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.13.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.12.0-beta"
+#define VHUDRADIO_VERSION "2.13.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -987,6 +1011,25 @@ static bool IsMapped(const void* p) {
     unsigned char vec = 0;
     return mincore((void*)a, 0x1000, &vec) == 0;
 }
+// v2.13: tabla/funcion de audio por modelo (ver header arriba). La tabla es
+// la via documentada (plugin-sdk: gVehicleAudioSettings[232]); la funcion se
+// prueba por si existe en libGTASA.so. Ninguna bloquea: solo diagnostico.
+static void* g_audioTable = nullptr;  // v2.13: gVehicleAudioSettings (tabla por modelo)
+static void* (*g_getVehAudioSettings)(short) = nullptr;  // v2.13: CAEVehicleAudioEntity::GetVehicleAudioSettings (si existe)
+// v2.13: lee el RadioType OFICIAL del modelo desde la tabla del juego.
+// Devuelve true si lo leyo; outRt: 0 civil, 1 especial, 3 emergencia, -1 sin radio.
+static bool ModelRadioType(uint16_t modelId, int* outRt) {
+    if (modelId < 400 || modelId > 611) return false;
+    if (g_audioTable) {  // tabla primero: es solo leer datos, sin llamar a nada
+        void* e = (char*)g_audioTable + (size_t)(modelId - 400) * 0x24;
+        if (IsMapped(e) && IsMapped((char*)e + 0x1B)) { *outRt = (int)*(signed char*)((char*)e + 0x1B); return true; }
+    }
+    if (g_getVehAudioSettings) {
+        void* st = g_getVehAudioSettings((short)modelId);
+        if (st && IsMapped(st) && IsMapped((char*)st + 0x1B)) { *outRt = (int)*(signed char*)((char*)st + 0x1B); return true; }
+    }
+    return false;
+}
 // v2.7: vuelca n bytes en hexadecimal a un buffer (para el diagnostico)
 static void HexDump(char* out, size_t outSz, const void* p, int n) {
     const unsigned char* b = (const unsigned char*)p;
@@ -1019,6 +1062,20 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             char hex[64*3+1];
             HexDump(hex, sizeof hex, veh, 64);
             Log("  vehiculo bytes[0x00..0x3F]=%s", hex);
+        }
+        // v2.13: candidatos de modelo + RadioType de la tabla del juego
+        // (diagnostico, SIN bloqueo: el log dira cual offset es el modelo
+        // real y que RadioType tiene ese modelo segun el juego).
+        {
+            uint16_t m26 = IsMapped((char*)veh + 0x26) ? *(uint16_t*)((char*)veh + 0x26) : 0;
+            uint16_t m2A = IsMapped((char*)veh + 0x2A) ? *(uint16_t*)((char*)veh + 0x2A) : 0;
+            uint16_t m2E = IsMapped((char*)veh + 0x2E) ? *(uint16_t*)((char*)veh + 0x2E) : 0;
+            Log("  modelo?: 0x26=%u 0x2A=%u 0x2E=%u (esperado 400..611)", (unsigned)m26, (unsigned)m2A, (unsigned)m2E);
+            int rt = -99;
+            if (m2E >= 400 && m2E <= 611 && ModelRadioType(m2E, &rt))
+                Log("  audioTabla: modelo=%u radioType=%d (0=civil 1=especial 3=emergencia -1=sin radio)", (unsigned)m2E, rt);
+            else
+                Log("  audioTabla: sin lectura (modelo 0x2E=%u tabla=%p funcion=%p)", (unsigned)m2E, g_audioTable, (void*)g_getVehAudioSettings);
         }
         int cands = 0;
         for (int off = 0x100; off <= 0x500 && cands < 20; off += 8) {
@@ -1311,6 +1368,10 @@ extern "C" void OnModLoad() {
     SYM(g_slowActive, "_ZN6CTimer17bSlowMotionActiveE");
     SYM(g_slowScale, "_ZN6CTimer19ms_fSlowMotionScaleE");
     SYM(g_timeScale, "_ZN6CTimer13ms_fTimeScaleE");
+    // v2.13: tabla/funcion de audio por modelo (diagnostico; ver header)
+    SYM(g_audioTable, "gVehicleAudioSettings");
+    if (!g_audioTable) SYM(g_audioTable, "_Z21gVehicleAudioSettings");
+    SYM(g_getVehAudioSettings, "_ZN21CAEVehicleAudioEntity23GetVehicleAudioSettingsEs");
     if (!g_slowActive && !g_timeScale) Log("  !! sin escala de tiempo: no habra ralentizacion al abrir la rueda");
     void* dfe = (void*)aml->GetSym(h, "_ZN12CMenuManager12DrawFrontEndEv");
     Log("  %s CMenuManager::DrawFrontEnd", dfe ? "ok" : "FALTA");
