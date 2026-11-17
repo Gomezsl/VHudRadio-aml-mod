@@ -14,7 +14,9 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 - Panel de personalización (letra grande, deslizadores y botones grandes, 8
   colores rápidos): oscuridad del fondo, tamaño de la rueda, color del anillo
   de selección, vista previa (solo se ve) y restablecer todo. Se guarda en
-  `Android/data/com.rockstargames.gtasa/files/configs/VHudRadio.ini`.
+  `Android/data/com.rockstargames.gtasa/configs/VHudRadio.ini` (o en
+  `Android_unprotected/data/com.rockstargames.gtasa/configs/`, la ruta AML
+  desprotegida). Si existe un .ini viejo en `files/configs/`, se muda solo.
 - La rueda, el botón y el panel no se ven en el menú de pausa del juego.
 - Log: `VHudRadioLog.txt` junto al juego.
 - Si ningún símbolo de radio resolvió (ver `probe/`), la rueda se dibuja pero no
