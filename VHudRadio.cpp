@@ -42,7 +42,7 @@
 // v1.6: CALIBRAR CLAXON - el volcado CPad de la v1.5 salio IDENTICO en los 120
 // volcados: el estado del claxon NO esta en los primeros 256 bytes de CPad (o no
 // esta en CPad). Mientras se sigue buscando (volcado ampliado a 2048 bytes), la
-// rueda trae un boton "Calibrar claxon": lo tocas, luego tocas el boton de claxon
+// v1.6 (retirado en v2.0): la rueda traia un boton "Calibrar claxon"
 // del juego, y la zona queda guardada en /storage/emulated/0/vhud/horn_pos.txt.
 // Si mueves el boton de claxon en los controles del juego, lo recalibras con un
 // toque. La zona ya no es fija: es la que tu calibraste.
