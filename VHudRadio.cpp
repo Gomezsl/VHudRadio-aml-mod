@@ -95,6 +95,7 @@
 #include <android/log.h>
 #include <EGL/egl.h>
 #include <SLES/OpenSLES.h>  // v2.2: sonido (la libreria se abre con dlopen, no se enlaza)
+#include <SLES/OpenSLES_Android.h>  // v2.2: SLDataLocator_AndroidSimpleBufferQueue vive aqui, no en OpenSLES.h
 #include <GLES2/gl2.h>
 #include <dlfcn.h>
 #include <link.h>
