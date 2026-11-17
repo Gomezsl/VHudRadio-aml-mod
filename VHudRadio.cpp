@@ -121,17 +121,6 @@ typedef bool (*IsTouchDownFn)(int);
 static IsTouchDownFn g_isTouchDown = nullptr;
 static const int kHornWidgetId = 7;  // WIDGET_HORN (por confirmar con el escaneo)
 
-// Abrir/cerrar la rueda con periodo refractario: el doble toque al claxon llega
-// por DOS caminos a la vez (widget 7 y zona tactil) y sin esto la abriria y la
-// cerraria en el mismo instante.
-static void ToggleWheel(const char* why) {
-    static auto lastToggle = std::chrono::steady_clock::now() - std::chrono::seconds(5);
-    auto now = std::chrono::steady_clock::now();
-    if (now - lastToggle < std::chrono::milliseconds(600)) return;
-    lastToggle = now;
-    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); }
-    else { g_open = false; Log("rueda cerrada por %s", why); }
-}
 
 // ---- diagnostico CPad (v1.5): encontrar el estado del claxon en la memoria del juego ----
 typedef void* (*GetPadFn)(int);
@@ -242,6 +231,18 @@ static void ApplyStation(int id) {
 static void RefreshCurrent() {
     if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); if (v >= 1 && v <= 13) g_current = v; return; }
     if (g_getStationTrack && g_trackManager) { int v = (int)g_getStationTrack(g_trackManager); if (v >= 1 && v <= 13) g_current = v; }
+}
+
+// Abrir/cerrar la rueda con periodo refractario: el doble toque al claxon llega
+// por DOS caminos a la vez (widget 7 y zona tactil) y sin esto la abriria y la
+// cerraria en el mismo instante.
+static void ToggleWheel(const char* why) {
+    static auto lastToggle = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastToggle < std::chrono::milliseconds(600)) return;
+    lastToggle = now;
+    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); }
+    else { g_open = false; Log("rueda cerrada por %s", why); }
 }
 
 // ---- toque: como ARCX (type 2 = pulsar, 3 = mover, 1/4 = soltar) ----
