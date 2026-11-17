@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.16.0-beta
+# VHud Radio Wheel 2.17.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -17,13 +17,19 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 - Sonido: clic al abrir la rueda y al seleccionar una estación (OpenSL ES).
 - Panel de personalización propio (azul casi oscuro, sin barra de título
   de ImGui, deslizadores, recuadros y botones dibujados a mano): oscuridad
-  del fondo, tamaño de la rueda y dos recuadros de color (anillo y texto del
-  centro); al tocar un recuadro se abre el panel RGB táctil (cuadro de
-  saturación/valor + barra de tono, con valores R G B y hex). También:
-  idioma, tamaño y opacidad del botón, bloqueo de su posición, vista previa
-  (solo se ve) y restablecer todo. Se guarda en
+  del fondo, tamaño de la rueda y tres recuadros de color (anillo, texto del
+  centro y fondo de la rueda); al tocar un recuadro se abre el panel RGB
+  táctil (cuadro de saturación/valor + barra de tono, con valores R G B y
+  hex). También: idioma, tamaño y opacidad del botón, bloqueo de su
+  posición, vista previa (solo se ve) y restablecer todo. Se guarda en
   `Android/data/com.rockstargames.gtasa/files/VHudRadio/VHudRadio.ini`.
   Si existe un .ini viejo en `data/configs/` o en `files/configs/`, se muda solo.
+- El panel se puede MOVER (arrastrando desde el título, como el menú de ARCX)
+  y cambiar de ANCHO (desde la esquina inferior derecha, con tres rayas en
+  diagonal, como en ARCX). La posición y el ancho se guardan en el .ini
+  (`panelX`/`panelY`/`panelAncho`); el alto se ajusta solo al contenido.
+  El botón flotante también detecta mejor el doble toque: el soltar siempre
+  llega, la ventana es de 600 ms y el temblor del dedo ya no lo mueve.
 - Idiomas: español, inglés, indonesio, portugués (Brasil), francés y alemán.
   Todo el panel y los géneros se traducen (los nombres de las estaciones no,
   son nombres propios). Se elige en el panel y se guarda como `idioma=es`
