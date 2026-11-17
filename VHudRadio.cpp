@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.14.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.15.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,22 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.15: BLOQUEO POR LISTA DE MODELOS (la funcion del juego CIERRA el juego)
+// - La v2.14 se CERRO al entrar a una bici (y a un carro de policia):
+//   crashlog SIGILL (ILL_ILLOPC) con PC en libGTASA.so+0x4895A4, justo en
+//   la PRIMERA instruccion de GetVehicleAudioSettings (X0=509, la bici).
+//   El simbolo resuelve (ok) pero NO es codigo llamable en este telefono
+//   (apunta a datos o a un stub que atrapa); llamarlo = cerrar el juego.
+//   Con el carro 445 la llamada devolvio "sin lectura" sin cerrarse, con
+//   la bici 509 se cerro al entrar a la funcion: no se por que una si y
+//   la otra no, pero la conclusion es firme: ESA FUNCION NO SE LLAMA.
+// - El bloqueo ahora es por LISTA DE MODELOS (la via manual que Daniel
+//   cuestiono, pero es la segura: usa solo el modelo en 0x32, verificado
+//   por el log v2.13, sin llamar a ninguna funcion del juego). Bicis
+//   481/509/510, emergencia 407/416/427/432/433/490/497/523/528/544,
+//   patrullas 596-599 + SWAT 601, especiales/RC/trabajo 441/449/457/464/
+//   465/485/501/530/531/532/537/538/539/564/568/571/572/583/594.
+//   Fail-open igual que antes: modelo fuera de rango -> la rueda ABRE.
 // v2.14: BLOQUEO POR MODELO + RADIOTYPE OFICIAL (el log v2.13 lo probo)
 // - El log v2.13 (VHudRadioLog_0_poj4.txt) registro PERFECTO: 2 entradas,
 //   carro Admiral modelo 445 y bici modelo 509. El modelo esta en 0x32, el
@@ -277,9 +293,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.14.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.15.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.14.0-beta"
+#define VHUDRADIO_VERSION "2.15.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -1029,38 +1045,28 @@ static bool IsMapped(const void* p) {
     unsigned char vec = 0;
     return mincore((void*)a, 0x1000, &vec) == 0;
 }
-// v2.13: tabla/funcion de audio por modelo (ver header arriba). La tabla es
-// la via documentada (plugin-sdk: gVehicleAudioSettings[232]); la funcion se
-// prueba por si existe en libGTASA.so. Ninguna bloquea: solo diagnostico.
-static void* g_audioTable = nullptr;  // v2.13: gVehicleAudioSettings (tabla por modelo)
-static void* (*g_getVehAudioSettings)(short) = nullptr;  // v2.13: CAEVehicleAudioEntity::GetVehicleAudioSettings (si existe)
-// v2.13: lee el RadioType OFICIAL del modelo desde la tabla del juego.
-// Devuelve true si lo leyo; outRt: 0 civil, 1 especial, 3 emergencia, -1 sin radio.
-static bool ModelRadioType(uint16_t modelId, int* outRt) {
-    if (modelId < 400 || modelId > 611) return false;
-    if (g_audioTable) {  // tabla primero: es solo leer datos, sin llamar a nada
-        void* e = (char*)g_audioTable + (size_t)(modelId - 400) * 0x24;
-        if (IsMapped(e) && IsMapped((char*)e + 0x1B)) { *outRt = (int)*(signed char*)((char*)e + 0x1B); return true; }
-    }
-    if (g_getVehAudioSettings) {
-        void* st = g_getVehAudioSettings((short)modelId);
-        if (st && IsMapped(st) && IsMapped((char*)st + 0x1B)) { *outRt = (int)*(signed char*)((char*)st + 0x1B); return true; }
-    }
-    return false;
-}
-// v2.14: el vehiculo tiene radio civil? Modelo en 0x32 (log v2.13: 445
-// Admiral / 509 Bike, unico uint16 en 400..611) + RadioType oficial por
-// GetVehicleAudioSettings (resolvio ok; la tabla NO resolvio). Fail-open:
-// ante cualquier duda la rueda ABRE (mejor que bloquear un carro, v2.11).
+// v2.15: el vehiculo tiene radio civil? Por LISTA DE MODELOS (ver header).
+// La funcion del juego cerraba el juego (SIGILL en su primera instruccion),
+// asi que no se llama a nada del juego: solo se lee el modelo en 0x32
+// (verificado por el log v2.13: 445 Admiral / 509 Bike) y se compara con
+// la lista. Fail-open: modelo fuera de rango -> la rueda ABRE.
 static bool VehicleHasRadio(void* veh) {
     if (!veh || !IsMapped(veh)) { Log("  radio: sin vehiculo, asumo radio"); return true; }
     if (!IsMapped((char*)veh + 0x32)) { Log("  radio: modelo no mapeado, asumo radio"); return true; }
     uint16_t modelId = *(uint16_t*)((char*)veh + 0x32);
     if (modelId < 400 || modelId > 611) { Log("  radio: modelo=%u fuera de rango, asumo radio", (unsigned)modelId); return true; }
-    int rt = -99;
-    if (!ModelRadioType(modelId, &rt)) { Log("  radio: modelo=%u sin lectura de tabla, asumo radio", (unsigned)modelId); return true; }
-    Log("  vehiculo: modelo=%u radioType=%d tieneRadio=%d", (unsigned)modelId, rt, rt == 0 ? 1 : 0);
-    return rt == 0;
+    bool noRadio = false;
+    switch (modelId) {
+        case 481: case 509: case 510:  // bicis: BMX, Bike, Mountain Bike
+        case 407: case 416: case 427: case 432: case 433: case 490: case 497: case 523: case 528: case 544:  // emergencia: bomberos, ambulancia, Enforcer, Rhino, Barracks, FBI Rancher, Police Maverick, HPV1000, FBI Truck, Firetruck LA
+        case 596: case 597: case 598: case 599: case 601:  // patrullas LSPD/SFPD/LVPD/Ranger + S.W.A.T.
+        case 441: case 449: case 457: case 464: case 465: case 485: case 501: case 530: case 531: case 532:  // especiales/trabajo: RC Bandit, Tram, Caddy, RC Baron, RC Raider, Baggage, RC Goblin, Forklift, Tractor, Combine
+        case 537: case 538: case 539: case 564: case 568: case 571: case 572: case 583: case 594:  // especiales/RC: Freight, Streak, Vortex, RC Tiger, Bandito, Kart, Mower, Tug, RC Cam
+            noRadio = true; break;
+        default: break;
+    }
+    Log("  vehiculo: modelo=%u tieneRadio=%d", (unsigned)modelId, noRadio ? 0 : 1);
+    return !noRadio;
 }
 // v2.7: vuelca n bytes en hexadecimal a un buffer (para el diagnostico)
 static void HexDump(char* out, size_t outSz, const void* p, int n) {
@@ -1399,10 +1405,6 @@ extern "C" void OnModLoad() {
     SYM(g_slowActive, "_ZN6CTimer17bSlowMotionActiveE");
     SYM(g_slowScale, "_ZN6CTimer19ms_fSlowMotionScaleE");
     SYM(g_timeScale, "_ZN6CTimer13ms_fTimeScaleE");
-    // v2.13: tabla/funcion de audio por modelo (diagnostico; ver header)
-    SYM(g_audioTable, "gVehicleAudioSettings");
-    if (!g_audioTable) SYM(g_audioTable, "_Z21gVehicleAudioSettings");
-    SYM(g_getVehAudioSettings, "_ZN21CAEVehicleAudioEntity23GetVehicleAudioSettingsEs");
     if (!g_slowActive && !g_timeScale) Log("  !! sin escala de tiempo: no habra ralentizacion al abrir la rueda");
     void* dfe = (void*)aml->GetSym(h, "_ZN12CMenuManager12DrawFrontEndEv");
     Log("  %s CMenuManager::DrawFrontEnd", dfe ? "ok" : "FALTA");
