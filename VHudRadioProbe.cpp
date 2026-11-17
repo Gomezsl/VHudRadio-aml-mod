@@ -1,1 +1,81 @@
-Ly8gVkh1ZFJhZGlvUHJvYmUuY3BwIC0gbWluaS1wbHVnaW4gU09MTyBwYXJhIHByb2JhciBzaW1ib2xvcyBkZSByYWRpbyBlbiBsaWJHVEFTQS5zbyAyLjEwIGFybTY0LgovLyBObyBkaWJ1amEgbmFkYSwgbm8gY2FtYmlhIGxhIHJhZGlvLCBubyBsbGFtYSBhIG5pbmd1bmEgZnVuY2lvbiBkZWwganVlZ28uCi8vIEFsIGFycmFuY2FyIHJlc3VlbHZlIGNhZGEgc2ltYm9sbyBjYW5kaWRhdG8gY29uIGFtbC0+R2V0U3ltIHkgZXNjcmliZQovLyAib2siIG8gIkZBTFRBIiBlbiBsb2djYXQgKHRhZyBWSHVkUmFkaW9Qcm9iZSkgeSBlbiBWSHVkUmFkaW9Qcm9iZS50eHQKLy8ganVudG8gYWwganVlZ28uIERhbmllbCBzb2xvIHRpZW5lIHF1ZSBlbnRyYXIgYWwganVlZ28sIHNhbGlyLCB5IG1hbmRhciBlc2UgdHh0LgovLyBCYXNhZG8gZW4gZWwgcGF0cm9uIFNZTSBkZSBBUkNYIChhcmN4X2NvcmUuaCkuCiNpbmNsdWRlIDxtb2QvY29uZmlnLmg+CiNpbmNsdWRlIDxtb2QvYW1sbW9kLmg+CiNpbmNsdWRlIDxhbmRyb2lkL2xvZy5oPgojaW5jbHVkZSA8c3lzL3N0YXQuaD4KI2luY2x1ZGUgPHVuaXN0ZC5oPgojaW5jbHVkZSA8Y3N0ZGlvPgojaW5jbHVkZSA8Y3N0cmluZz4KI2luY2x1ZGUgPHN0cmluZz4KCk1ZTU9EQ0ZHKG5ldC5odW50ZXIwOS52aHVkcmFkaW9wcm9iZSwgVkh1ZCBSYWRpbyBQcm9iZSwgMS4wLjAsIEh1bnRlcjA5KQpORUVER0FNRShjb20ucm9ja3N0YXJnYW1lcy5ndGFzYSkKCnN0YXRpYyBzdGQ6OnN0cmluZyBnX2xvZ1BhdGg7CnN0YXRpYyB2b2lkIFByb2JlTG9nKGNvbnN0IGNoYXIqIGZtdCwgLi4uKSB7CiAgICBjaGFyIGJ1Zls3MDBdOwogICAgdmFfbGlzdCBhcDsgdmFfc3RhcnQoYXAsIGZtdCk7IHZzbnByaW50ZihidWYsIHNpemVvZiBidWYsIGZtdCwgYXApOyB2YV9lbmQoYXApOwogICAgX19hbmRyb2lkX2xvZ19wcmludChBTkRST0lEX0xPR19JTkZPLCAiVkh1ZFJhZGlvUHJvYmUiLCAiJXMiLCBidWYpOwogICAgaWYgKCFnX2xvZ1BhdGguZW1wdHkoKSkgeyBGSUxFKiBmID0gZm9wZW4oZ19sb2dQYXRoLmNfc3RyKCksICJhIik7IGlmIChmKSB7IGZwcmludGYoZiwgIiVzXG4iLCBidWYpOyBmY2xvc2UoZik7IH0gfQp9CgpleHRlcm4gIkMiIHZvaWQgT25Nb2RMb2FkKCkgewogICAgc3RhdGljIGNvbnN0IGNoYXIqIGtGaWxlc0RpcnNbXSA9IHsKICAgICAgICAiL3N0b3JhZ2UvZW11bGF0ZWQvMC9BbmRyb2lkX3VucHJvdGVjdGVkL2RhdGEvY29tLnJvY2tzdGFyZ2FtZXMuZ3Rhc2EvZmlsZXMiLAogICAgICAgICIvc3RvcmFnZS9lbXVsYXRlZC8wL0FuZHJvaWQvZGF0YS9jb20ucm9ja3N0YXJnYW1lcy5ndGFzYS9maWxlcyIsCiAgICAgICAgIi9zZGNhcmQvQW5kcm9pZC9kYXRhL2NvbS5yb2Nrc3RhcmdhbWVzLmd0YXNhL2ZpbGVzIiwKICAgICAgICAiL3N0b3JhZ2Uvc2VsZi9wcmltYXJ5L0FuZHJvaWQvZGF0YS9jb20ucm9ja3N0YXJnYW1lcy5ndGFzYS9maWxlcyIsCiAgICB9OwogICAgc3RkOjpzdHJpbmcgZmlsZXM7CiAgICBmb3IgKGF1dG8gZCA6IGtGaWxlc0RpcnMpIHsgc3RydWN0IHN0YXQgc3Q7IGlmIChzdGF0KGQsICZzdCkgPT0gMCkgeyBmaWxlcyA9IGQ7IGJyZWFrOyB9IH0KICAgIGlmICghZmlsZXMuZW1wdHkoKSkgZ19sb2dQYXRoID0gZmlsZXMgKyAiL1ZIdWRSYWRpb1Byb2JlLnR4dCI7CiAgICBpZiAoIWdfbG9nUGF0aC5lbXB0eSgpKSB7IEZJTEUqIGYgPSBmb3BlbihnX2xvZ1BhdGguY19zdHIoKSwgInciKTsgaWYgKGYpIHsgZnByaW50ZihmLCAiIyBWSHVkUmFkaW9Qcm9iZSAxLjAuMCAocGlkICVkKVxuIiwgKGludClnZXRwaWQoKSk7IGZjbG9zZShmKTsgfSB9CgogICAgUHJvYmVMb2coIj09IFZIdWQgUmFkaW8gUHJvYmUgMS4wLjA6IGJ1c2NhbmRvIHNpbWJvbG9zIGRlIHJhZGlvIGVuIGxpYkdUQVNBLnNvID09Iik7CiAgICB2b2lkKiBoID0gYW1sLT5HZXRMaWJIYW5kbGUoImxpYkdUQVNBLnNvIik7CiAgICBQcm9iZUxvZygibGliR1RBU0Euc28gaGFuZGxlOiAlcyIsIGggPyAib2siIDogIkZBTFRBIik7CiAgICBpZiAoIWgpIHsgUHJvYmVMb2coIlJFU1VMVEFETzogc2luIGxpYkdUQVNBLnNvLCBubyBzZSBwdWRvIHByb2JhciBuYWRhIik7IHJldHVybjsgfQoKICAgIC8vIENhbmRpZGF0b3MgTElLRUxZIChkZXJpdmFkb3MgZGUgbGEgbGlzdGEgbW92aWwgKyBnKyssIE5PIHZlcmlmaWNhZG9zIGVuIDIuMTApLgogICAgLy8gUHJpbWVybyBhIHByb2JhciBlbiBsYSB2MTogUmV0dW5lUmFkaW8gZGUgQ0F1ZGlvRW5naW5lICgxIHNvbG8gYXJnKS4KICAgIHN0YXRpYyBjb25zdCBjaGFyKiBrU3ltc1tdID0gewogICAgICAgICJfWk4xMkNBdWRpb0VuZ2luZTExUmV0dW5lUmFkaW9FYSIsCiAgICAgICAgIl9aTjIwQ0FFUmFkaW9UcmFja01hbmFnZXIxMVJldHVuZVJhZGlvRWEiLAogICAgICAgICJfWk4xMkNBdWRpb0VuZ2luZTI0R2V0Q3VycmVudFJhZGlvU3RhdGlvbklERXYiLAogICAgICAgICJfWk4yMENBRVJhZGlvVHJhY2tNYW5hZ2VyMjRHZXRDdXJyZW50UmFkaW9TdGF0aW9uSURFdiIsCiAgICAgICAgIl9aTjEyQ0F1ZGlvRW5naW5lMTBTdGFydFJhZGlvRWFhIiwKICAgICAgICAiX1pOMjBDQUVSYWRpb1RyYWNrTWFuYWdlcjEwU3RhcnRSYWRpb0VhYWZoIiwKICAgICAgICAiX1pOMTJDQXVkaW9FbmdpbmU5U3RvcFJhZGlvRVAyMXRWZWhpY2xlQXVkaW9TZXR0aW5nc2giLAogICAgICAgICJfWk4yMENBRVJhZGlvVHJhY2tNYW5hZ2VyOVN0b3BSYWRpb0VQMjF0VmVoaWNsZUF1ZGlvU2V0dGluZ3NoIiwKICAgICAgICAiX1pOMjBDQUVSYWRpb1RyYWNrTWFuYWdlcjIxQ2hlY2tGb3JTdGF0aW9uUmV0dW5lRXYiLAogICAgICAgICJfWk4xMkNBdWRpb0VuZ2luZTIzRGlzcGxheVJhZGlvU3RhdGlvbk5hbWVFdiIsCiAgICAgICAgIl9aTjIwQ0FFUmFkaW9UcmFja01hbmFnZXIyM0Rpc3BsYXlSYWRpb1N0YXRpb25OYW1lRXYiLAogICAgICAgICJfWk4xMkNBdWRpb0VuZ2luZTIwSXNWZWhpY2xlUmFkaW9BY3RpdmVFdiIsCiAgICAgICAgIl9aTjIwQ0FFUmFkaW9UcmFja01hbmFnZXIyMElzVmVoaWNsZVJhZGlvQWN0aXZlRXYiLAogICAgICAgICJfWk4xMkNBdWRpb0VuZ2luZTIzSXNSYWRpb1JldHVuZUluUHJvZ3Jlc3NFdiIsCiAgICAgICAgLy8gVmFyaWFudGVzIFBDIHF1ZSBOTyBkZWJlcmlhbiBlc3RhciBlbiBtb3ZpbCAoY29udHJvbCBuZWdhdGl2byk6CiAgICAgICAgIl9aTjEyQ0F1ZGlvRW5naW5lMTFSZXR1bmVSYWRpb0VjIiwKICAgICAgICAiX1pOMTJDQXVkaW9FbmdpbmUxMFN0YXJ0UmFkaW9FaWMiLAogICAgICAgICJfWk4yMENBRVJhZGlvVHJhY2tNYW5hZ2VyMTBTdGFydFJhZGlvRWlmaWMiLAogICAgICAgIC8vIEdsb2JhbGVzIC8gaW5zdGFuY2lhcyAocGxhbm9zLCB5IGNvbiBtYW5nbGluZyBwb3Igc2kgYWNhc28pOgogICAgICAgICJBRVJhZGlvVHJhY2tNYW5hZ2VyIiwKICAgICAgICAiQXVkaW9FbmdpbmUiLAogICAgICAgICJfWjE5QUVSYWRpb1RyYWNrTWFuYWdlciIsCiAgICAgICAgIl9aMTFBdWRpb0VuZ2luZSIsCiAgICAgICAgLy8gQ29udHJvbDogdW4gc2ltYm9sbyBxdWUgU0kgZXhpc3RlIGVuIEFSQ1gsIHBhcmEgc2FiZXIgcXVlIEdldFN5bSBmdW5jaW9uYToKICAgICAgICAiX1oxM0ZpbmRQbGF5ZXJQZWRpIiwKICAgICAgICAiX1pONENQZWQxM1NldE1vZGVsSW5kZXhFaiIsCiAgICB9OwogICAgaW50IG9rID0gMCwgdG90YWwgPSAwOwogICAgZm9yIChhdXRvIG5hbWUgOiBrU3ltcykgewogICAgICAgIHZvaWQqIHAgPSAodm9pZCopYW1sLT5HZXRTeW0oaCwgbmFtZSk7CiAgICAgICAgUHJvYmVMb2coIiAgJXMgJXMiLCBwID8gIm9rICAgICIgOiAiRkFMVEEgIiwgbmFtZSk7CiAgICAgICAgdG90YWwrKzsgaWYgKHApIG9rKys7CiAgICB9CiAgICBQcm9iZUxvZygiUkVTVUxUQURPOiAlZC8lZCBzaW1ib2xvcyByZXNvbHZpZXJvbi4gTWFuZGEgVkh1ZFJhZGlvUHJvYmUudHh0IHBhcmEgYXJtYXIgbGEgdjEgc29sbyBjb24gbG9zIHF1ZSBkaWNlbiBvay4iLCBvaywgdG90YWwpOwp9Cg==
+// VHudRadioProbe.cpp - mini-plugin SOLO para probar simbolos de radio en libGTASA.so 2.10 arm64.
+// No dibuja nada, no cambia la radio, no llama a ninguna funcion del juego.
+// Al arrancar resuelve cada simbolo candidato con aml->GetSym y escribe
+// "ok" o "FALTA" en logcat (tag VHudRadioProbe) y en VHudRadioProbe.txt
+// junto al juego. Daniel solo tiene que entrar al juego, salir, y mandar ese txt.
+// Basado en el patron SYM de ARCX (arcx_core.h).
+#include <mod/config.h>
+#include <mod/amlmod.h>
+#include <android/log.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+MYMODCFG(net.hunter09.vhudradioprobe, VHud Radio Probe, 1.0.0, Hunter09)
+NEEDGAME(com.rockstargames.gtasa)
+
+static std::string g_logPath;
+static void ProbeLog(const char* fmt, ...) {
+    char buf[700];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
+    __android_log_print(ANDROID_LOG_INFO, "VHudRadioProbe", "%s", buf);
+    if (!g_logPath.empty()) { FILE* f = fopen(g_logPath.c_str(), "a"); if (f) { fprintf(f, "%s\n", buf); fclose(f); } }
+}
+
+extern "C" void OnModLoad() {
+    static const char* kFilesDirs[] = {
+        "/storage/emulated/0/Android_unprotected/data/com.rockstargames.gtasa/files",
+        "/storage/emulated/0/Android/data/com.rockstargames.gtasa/files",
+        "/sdcard/Android/data/com.rockstargames.gtasa/files",
+        "/storage/self/primary/Android/data/com.rockstargames.gtasa/files",
+    };
+    std::string files;
+    for (auto d : kFilesDirs) { struct stat st; if (stat(d, &st) == 0) { files = d; break; } }
+    if (!files.empty()) g_logPath = files + "/VHudRadioProbe.txt";
+    if (!g_logPath.empty()) { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioProbe 1.0.0 (pid %d)\n", (int)getpid()); fclose(f); } }
+
+    ProbeLog("== VHud Radio Probe 1.0.0: buscando simbolos de radio en libGTASA.so ==");
+    void* h = aml->GetLibHandle("libGTASA.so");
+    ProbeLog("libGTASA.so handle: %s", h ? "ok" : "FALTA");
+    if (!h) { ProbeLog("RESULTADO: sin libGTASA.so, no se pudo probar nada"); return; }
+
+    // Candidatos LIKELY (derivados de la lista movil + g++, NO verificados en 2.10).
+    // Primero a probar en la v1: RetuneRadio de CAudioEngine (1 solo arg).
+    static const char* kSyms[] = {
+        "_ZN12CAudioEngine11RetuneRadioEa",
+        "_ZN20CAERadioTrackManager11RetuneRadioEa",
+        "_ZN12CAudioEngine24GetCurrentRadioStationIDEv",
+        "_ZN20CAERadioTrackManager24GetCurrentRadioStationIDEv",
+        "_ZN12CAudioEngine10StartRadioEaa",
+        "_ZN20CAERadioTrackManager10StartRadioEaafh",
+        "_ZN12CAudioEngine9StopRadioEP21tVehicleAudioSettingsh",
+        "_ZN20CAERadioTrackManager9StopRadioEP21tVehicleAudioSettingsh",
+        "_ZN20CAERadioTrackManager21CheckForStationRetuneEv",
+        "_ZN12CAudioEngine23DisplayRadioStationNameEv",
+        "_ZN20CAERadioTrackManager23DisplayRadioStationNameEv",
+        "_ZN12CAudioEngine20IsVehicleRadioActiveEv",
+        "_ZN20CAERadioTrackManager20IsVehicleRadioActiveEv",
+        "_ZN12CAudioEngine23IsRadioRetuneInProgressEv",
+        // Variantes PC que NO deberian estar en movil (control negativo):
+        "_ZN12CAudioEngine11RetuneRadioEc",
+        "_ZN12CAudioEngine10StartRadioEic",
+        "_ZN20CAERadioTrackManager10StartRadioEific",
+        // Globales / instancias (planos, y con mangling por si acaso):
+        "AERadioTrackManager",
+        "AudioEngine",
+        "_Z19AERadioTrackManager",
+        "_Z11AudioEngine",
+        // Control: un simbolo que SI existe en ARCX, para saber que GetSym funciona:
+        "_Z13FindPlayerPedi",
+        "_ZN4CPed13SetModelIndexEj",
+    };
+    int ok = 0, total = 0;
+    for (auto name : kSyms) {
+        void* p = (void*)aml->GetSym(h, name);
+        ProbeLog("  %s %s", p ? "ok    " : "FALTA ", name);
+        total++; if (p) ok++;
+    }
+    ProbeLog("RESULTADO: %d/%d simbolos resolvieron. Manda VHudRadioProbe.txt para armar la v1 solo con los que dicen ok.", ok, total);
+}
