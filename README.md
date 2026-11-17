@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.6.0-beta
+# VHud Radio Wheel 2.7.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -17,12 +17,17 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   centro); al tocar un recuadro se abre el panel RGB táctil (cuadro de
   saturación/valor + barra de tono, con valores R G B y hex)
 - Al abrir la rueda el juego va lento (ralentización estilo GTA V) y vuelve
-  a velocidad normal al cerrarla.
+  a velocidad normal al cerrarla: los valores de slow-motion se escriben en
+  cada frame mientras está abierta (la v2.6 solo los escribía al abrir y el
+  juego los borraba), con un registro en el log cada segundo para confirmar
+  que la escala se mantiene en 0.30.
+- RadioType (solo diagnóstico en esta versión): al entrar a un vehículo el
+  log registra el puntero de audio del vehículo y la zona de ajustes de la
+  entidad, para confirmar el offset del teléfono antes de bloquear la rueda
+  en bicis/tractores/patrullas.
 - La pausa se detecta por varias señales (CMenuManager, CTimer::m_UserPause
   y CMenuManager::DrawFrontEnd) para que la UI no se vea en el menú de pausa.
-- RadioType (solo diagnóstico en esta versión): al entrar a un vehículo el
-  log registra el byte candidato y sus vecinos para confirmar el offset del
-  teléfono antes de bloquear la rueda en bicis/tractores/patrullas.
+
   de selección, vista previa (solo se ve) y restablecer todo. Se guarda en
   `Android/data/com.rockstargames.gtasa/configs/VHudRadio.ini` (o en
   `Android_unprotected/data/com.rockstargames.gtasa/configs/`, la ruta AML
