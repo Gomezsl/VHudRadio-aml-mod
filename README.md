@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.4.0-beta
+# VHud Radio Wheel 2.5.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -11,8 +11,10 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 - Botón flotante abajo a la derecha con etiqueta (nombre + género de la estación):
   un toque = siguiente estación, dos toques = panel de personalización.
 - Sonido: clic al abrir la rueda y al seleccionar una estación (OpenSL ES).
-- Panel de personalización (letra grande, deslizadores y botones grandes, 8
-  colores rápidos): oscuridad del fondo, tamaño de la rueda, color del anillo
+- Panel de personalización estilo ARCX (violeta, borde en degradado
+  azul-morado, letra grande, deslizadores y botones grandes): oscuridad del
+  fondo, tamaño de la rueda y panel RGB táctil para el color del anillo
+  (cuadro de saturación/valor + barra de tono, con valores R G B y hex)
   de selección, vista previa (solo se ve) y restablecer todo. Se guarda en
   `Android/data/com.rockstargames.gtasa/configs/VHudRadio.ini` (o en
   `Android_unprotected/data/com.rockstargames.gtasa/configs/`, la ruta AML
