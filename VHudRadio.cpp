@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.16.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.17.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,30 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.17: PANEL MOVIBLE Y REDIMENSIONABLE (COMO ARCX) + DOBLE TOQUE FIABLE + COLOR DE FONDO
+// - Panel movible y con ancho ajustable, como el menu de ARCX: se arrastra
+//   desde el titulo (InvisibleButton ##panelDrag + IsMouseDragging como en
+//   arcx_ui.h) y se cambia el ancho desde la esquina inferior derecha
+//   (grip ##panelGrip con 3 rayas en diagonal, como en ARCX). La posicion
+//   y el ancho se guardan en el .ini (panelX/panelY/panelAncho, fraccion de
+//   W; -1 = centrado, ancho por defecto 0.44, entre 0.36 y 0.70). El alto
+//   sigue automatico segun el contenido, como hasta ahora. Al empezar a
+//   arrastrar con la posicion en -1 se toma la posicion real de la ventana
+//   para que el panel no salte a la esquina.
+// - Doble toque al boton mas fiable: el log de la v2.16 mostro que los
+//   toques se clasificaban como arrastres (el boton se movia en vez de
+//   cambiar de estacion) y a veces el doble toque no abria el panel.
+//   Tres arreglos: (1) Touch_hook encola SIEMPRE el soltar (antes solo
+//   cuando la rueda/panel estaban abiertos, y un toque rapido podia perder
+//   su soltar si DrawFrame aun no habia procesado el bajar); (2) la
+//   ventana de doble toque pasa de 400 a 600 ms; (3) el umbral de arrastre
+//   pasa de 0.012H a 0.02H (el temblor del dedo ya no cancela el toque).
+//   Ademas el log "rueda bloqueada" ya no repite en cada toque (maximo una
+//   vez cada 2 segundos).
+// - Color de fondo de la rueda: el fondo oscuro ya no es solo negro con
+//   oscuridad ajustable; ahora tiene su propio color (fondoColor=r,g,b,
+//   por defecto 0,0,0) con un tercer recuadro "Fondo" en el panel que abre
+//   el mismo selector RGB tactil (objetivo 2 del picker).
 // v2.16: SIN RADIO NO HAY BOTON NI PANEL + BOTON MOVIBLE + IDIOMAS + CARPETA VHudRadio
 // - En vehiculos sin radio el boton flotante NO se ve y el panel NO se puede
 //   abrir (antes el boton se veia y el panel se abria igual; ahora ambos
@@ -317,9 +341,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.16.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.17.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.16.0-beta"
+#define VHUDRADIO_VERSION "2.17.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -394,14 +418,14 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 enum LangId { L_ES = 0, L_EN, L_ID, L_PT, L_FR, L_DE, L_COUNT };
 static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indonesia", "Portugues (BR)", "Francais", "Deutsch" };
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
-enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_COUNT };
+enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_COUNT };
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en VHudRadio/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton" },
-    { "Customize radio wheel", "Background, size and colors. Saved in VHudRadio/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di VHudRadio/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em VHudRadio/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans VHudRadio/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in VHudRadio/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en VHudRadio/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo" },
+    { "Customize radio wheel", "Background, size and colors. Saved in VHudRadio/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di VHudRadio/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em VHudRadio/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans VHudRadio/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in VHudRadio/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -470,7 +494,10 @@ static void LoadHornPos() {
 // idioma=es (es/en/id/pt/fr/de) botonX/botonY=-1 (posicion del boton flotante,
 //   fraccion de W/H; -1 = abajo a la derecha) botonTam=100 (50..150, %)
 // botonOpac=100 (30..100, %) botonBloq=0 (0 = se puede mover, 1 = fijo) (v2.16)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; };
+// fondoColor=0,0,0 (color del fondo oscuro de la rueda) panelX/panelY=-1
+//   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
+//   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -492,10 +519,14 @@ static void SaveCfg() {
     fprintf(f, "botonTam=%d\n", g_cfg.btnTam);
     fprintf(f, "botonOpac=%d\n", g_cfg.btnOpac);
     fprintf(f, "botonBloq=%d\n", g_cfg.btnBloq);
+    fprintf(f, "fondoColor=%d,%d,%d\n", g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB);
+    fprintf(f, "panelX=%.3f\n", g_cfg.panelX);
+    fprintf(f, "panelY=%.3f\n", g_cfg.panelY);
+    fprintf(f, "panelAncho=%.3f\n", g_cfg.panelAncho);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -540,6 +571,13 @@ static void LoadCfg() {
         else if (strcmp(k, "botonTam") == 0) g_cfg.btnTam = atoi(v);
         else if (strcmp(k, "botonOpac") == 0) g_cfg.btnOpac = atoi(v);
         else if (strcmp(k, "botonBloq") == 0) g_cfg.btnBloq = atoi(v);
+        else if (strcmp(k, "fondoColor") == 0) {
+            int r = 0, g = 0, b = 0;
+            if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.fondoR = r; g_cfg.fondoG = g; g_cfg.fondoB = b; }
+        }
+        else if (strcmp(k, "panelX") == 0) g_cfg.panelX = (float)atof(v);
+        else if (strcmp(k, "panelY") == 0) g_cfg.panelY = (float)atof(v);
+        else if (strcmp(k, "panelAncho") == 0) g_cfg.panelAncho = (float)atof(v);
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -556,8 +594,14 @@ static void LoadCfg() {
     if (g_cfg.btnTam < 50) g_cfg.btnTam = 50; if (g_cfg.btnTam > 150) g_cfg.btnTam = 150;
     if (g_cfg.btnOpac < 30) g_cfg.btnOpac = 30; if (g_cfg.btnOpac > 100) g_cfg.btnOpac = 100;
     if (g_cfg.btnBloq != 0 && g_cfg.btnBloq != 1) g_cfg.btnBloq = 0;
+    if (g_cfg.fondoR < 0) g_cfg.fondoR = 0; if (g_cfg.fondoR > 255) g_cfg.fondoR = 255;
+    if (g_cfg.fondoG < 0) g_cfg.fondoG = 0; if (g_cfg.fondoG > 255) g_cfg.fondoG = 255;
+    if (g_cfg.fondoB < 0) g_cfg.fondoB = 0; if (g_cfg.fondoB > 255) g_cfg.fondoB = 255;
+    if (g_cfg.panelX < -1.0f) g_cfg.panelX = -1.0f; if (g_cfg.panelX > 1.0f) g_cfg.panelX = 1.0f;
+    if (g_cfg.panelY < -1.0f) g_cfg.panelY = -1.0f; if (g_cfg.panelY > 1.0f) g_cfg.panelY = 1.0f;
+    if (g_cfg.panelAncho < 0.36f) g_cfg.panelAncho = 0.36f; if (g_cfg.panelAncho > 0.70f) g_cfg.panelAncho = 0.70f;
     if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
-    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq);
+    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d idioma=%s boton=%.2f,%.2f tam=%d%% opac=%d%% bloq=%d fondoColor=%d,%d,%d panel=%.2f,%.2f ancho=%.2f)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, kLangCodes[g_cfg.idioma], g_cfg.btnX, g_cfg.btnY, g_cfg.btnTam, g_cfg.btnOpac, g_cfg.btnBloq, g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.panelX, g_cfg.panelY, g_cfg.panelAncho);
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -729,10 +773,14 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
     if (idx == 0) {
         std::lock_guard<std::mutex> lk(g_inMtx);
         if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
-        // v2.4: sin esto el panel no funcionaba - los eventos de soltar/mover solo
+        // v2.17: el soltar SIEMPRE se encola - antes solo llegaba con la rueda o el
+        // panel abiertos, y un toque rapido podia perder su soltar si DrawFrame aun
+        // no habia procesado el bajar (el doble toque fallaba a veces)
+        else if (up) { g_evs.push_back({2, 0, 0}); }
+        // v2.4: sin esto el panel no funcionaba - los eventos de mover solo
         // llegaban a ImGui con la rueda abierta; con el panel abierto (rueda cerrada)
-        // ImGui recibia el toque de bajar pero nunca el de soltar
-        else if (g_open || g_cap || g_settings || g_preview || g_btnDrag) { g_evs.push_back({0, (float)x, (float)y}); if (up) g_evs.push_back({2, 0, 0}); }  // v2.16: sin esto el arrastre del boton no llegaria (la rueda esta cerrada)
+        // ImGui recibia el toque de bajar pero nunca el de mover
+        else if (g_open || g_cap || g_settings || g_preview || g_btnDrag) { g_evs.push_back({0, (float)x, (float)y}); }
     }
     return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
 }
@@ -835,7 +883,7 @@ static void DrawWheel(float W, float H) {
     float R = WheelR(H);
     float Ri = WheelRi(H);
     float s = WheelIconS(H);
-    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, g_cfg.fondo * 255 / 100));  // oscuridad ajustable
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, g_cfg.fondo * 255 / 100));  // v2.17: color de fondo ajustable (oscuridad = alfa)
     dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
     for (int i = 1; i <= 13; i++) {
         float a0 = -3.14159265f/2 + (i-1) * 2*3.14159265f/13.0f;
@@ -919,6 +967,7 @@ static int g_pickTarget = -1;  // v2.6: -1 = selector cerrado, 0 = anillo, 1 = t
 static void PickerSyncFromRGB() {
     int r, g, b;
     if (g_pickTarget == 1) { r = g_cfg.textoR; g = g_cfg.textoG; b = g_cfg.textoB; }
+    else if (g_pickTarget == 2) { r = g_cfg.fondoR; g = g_cfg.fondoG; b = g_cfg.fondoB; }  // v2.17: color del fondo
     else { r = g_cfg.ringR; g = g_cfg.ringG; b = g_cfg.ringB; }
     ImGui::ColorConvertRGBtoHSV(r / 255.0f, g / 255.0f, b / 255.0f, g_pickH, g_pickS, g_pickV);
 }
@@ -927,6 +976,7 @@ static void PickerApplyToRGB() {
     ImGui::ColorConvertHSVtoRGB(g_pickH, g_pickS, g_pickV, r, g, b);
     int ri = (int)(r * 255.0f + 0.5f), gi = (int)(g * 255.0f + 0.5f), bi = (int)(b * 255.0f + 0.5f);
     if (g_pickTarget == 1) { g_cfg.textoR = ri; g_cfg.textoG = gi; g_cfg.textoB = bi; }
+    else if (g_pickTarget == 2) { g_cfg.fondoR = ri; g_cfg.fondoG = gi; g_cfg.fondoB = bi; }  // v2.17: color del fondo
     else { g_cfg.ringR = ri; g_cfg.ringG = gi; g_cfg.ringB = bi; }
 }
 // ---- controles propios del panel (no los de ImGui por defecto) ----------------
@@ -998,8 +1048,11 @@ static void DrawSettings(float W, float H) {
     // sin barra de titulo, con deslizadores, recuadros y botones dibujados a mano
     const ImVec4 titleCol(0.75f, 0.85f, 1.0f, 1.0f);  // azul claro
     const ImVec4 subCol(0.55f, 0.65f, 0.85f, 1.0f);   // azul grisaceo
-    ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(W * 0.44f, 0), ImGuiCond_Always);
+    // v2.17: el panel se puede mover y cambiar de ancho (como el menu de ARCX);
+    // la posicion y el ancho se guardan en el .ini (panelX/panelY/panelAncho)
+    if (g_cfg.panelX >= 0.0f && g_cfg.panelY >= 0.0f) ImGui::SetNextWindowPos(ImVec2(g_cfg.panelX * W, g_cfg.panelY * H), ImGuiCond_Always);
+    else ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(W * g_cfg.panelAncho, 0), ImGuiCond_Always);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.014f, H*0.014f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.010f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, H*0.015f);
@@ -1012,11 +1065,25 @@ static void DrawSettings(float W, float H) {
     if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleColor(3); ImGui::PopStyleVar(4); return; }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImGuiIO& io = ImGui::GetIO();
-    // titulo centrado + linea en degradado azul
+    // titulo centrado + linea en degradado azul; v2.17: arrastrar el titulo
+    // mueve el panel (como la cabecera del menu de ARCX)
     const char* title = S(STR_TITLE);
     ImVec2 ts = ImGui::CalcTextSize(title);
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ts.x) * 0.5f);
-    ImGui::TextColored(titleCol, "%s", title);
+    ImVec2 titlePos = ImGui::GetCursorScreenPos();
+    float titleW = ImGui::GetContentRegionAvail().x;
+    ImGui::InvisibleButton("##panelDrag", ImVec2(titleW, ts.y + H*0.004f));
+    static bool panelMoved = false;
+    if (ImGui::IsItemActivated() && (g_cfg.panelX < 0.0f || g_cfg.panelY < 0.0f)) { ImVec2 wp = ImGui::GetWindowPos(); g_cfg.panelX = wp.x / W; g_cfg.panelY = wp.y / H; }
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 6.0f)) {
+        g_cfg.panelX += io.MouseDelta.x / W;
+        g_cfg.panelY += io.MouseDelta.y / H;
+        ImVec2 ws = ImGui::GetWindowSize();
+        if (g_cfg.panelX < 0.0f) g_cfg.panelX = 0.0f; if (g_cfg.panelX > 1.0f - ws.x / W) g_cfg.panelX = 1.0f - ws.x / W;
+        if (g_cfg.panelY < 0.0f) g_cfg.panelY = 0.0f; if (g_cfg.panelY > 1.0f - ws.y / H) g_cfg.panelY = 1.0f - ws.y / H;
+        panelMoved = true; g_cfgDirty = true;
+    }
+    if (ImGui::IsItemDeactivated()) { if (panelMoved) { SaveCfg(); panelMoved = false; } }
+    dl->AddText(ImVec2(titlePos.x + (titleW - ts.x) * 0.5f, titlePos.y), ImGui::GetColorU32(titleCol), title);
     ImVec2 lp = ImGui::GetCursorScreenPos();
     float lw = ImGui::GetContentRegionAvail().x;
     dl->AddRectFilledMultiColor(lp, ImVec2(lp.x + lw, lp.y + H*0.003f), IM_COL32(20, 110, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(20, 110, 255, 255));
@@ -1039,8 +1106,15 @@ static void DrawSettings(float W, float H) {
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (H*0.055f - ImGui::GetTextLineHeight()) * 0.5f);
     ImGui::Text("%s", S(STR_TEXTO));
     ImGui::EndGroup();
+    ImGui::SameLine(0, H*0.05f);
+    ImGui::BeginGroup();
+    if (PanelSwatch("##swFondo", ImVec4(g_cfg.fondoR / 255.0f, g_cfg.fondoG / 255.0f, g_cfg.fondoB / 255.0f, 1.0f), g_pickTarget == 2, H)) { g_pickTarget = (g_pickTarget == 2) ? -1 : 2; PlayClick(false); }
+    ImGui::SameLine(0, H*0.012f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (H*0.055f - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::Text("%s", S(STR_FONDO_LBL));
+    ImGui::EndGroup();
     if (g_pickTarget >= 0) {
-        ImGui::TextColored(titleCol, "%s", g_pickTarget == 1 ? S(STR_TEXTO) : S(STR_ANILLO));
+        ImGui::TextColored(titleCol, "%s", g_pickTarget == 1 ? S(STR_TEXTO) : (g_pickTarget == 2 ? S(STR_FONDO_LBL) : S(STR_ANILLO)));
         // ---- panel RGB tactil (como ARCX 3.1.38): cuadro saturacion/valor + barra de tono ----
         const float gap = H * 0.012f;
         const float hueW = H * 0.045f;
@@ -1075,6 +1149,7 @@ static void DrawSettings(float W, float H) {
         dl->AddRect(sq0, ImVec2(sq0.x + sq, sq0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
         int cr, cg, cb;
         if (g_pickTarget == 1) { cr = g_cfg.textoR; cg = g_cfg.textoG; cb = g_cfg.textoB; }
+        else if (g_pickTarget == 2) { cr = g_cfg.fondoR; cg = g_cfg.fondoG; cb = g_cfg.fondoB; }  // v2.17: color del fondo
         else { cr = g_cfg.ringR; cg = g_cfg.ringG; cb = g_cfg.ringB; }
         const ImU32 pickU = ImGui::GetColorU32(ImVec4(cr / 255.0f, cg / 255.0f, cb / 255.0f, 1.0f));
         const ImVec2 mk(sq0.x + g_pickS * sq, sq0.y + (1.0f - g_pickV) * sq);
@@ -1130,12 +1205,35 @@ static void DrawSettings(float W, float H) {
     if (PanelButton(S(STR_RESET), H)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
     if (PanelButton(S(STR_CLOSE), H)) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
     // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)
     if (g_cfgDirty && io.MouseReleased[0]) { SaveCfg(); g_cfgDirty = false; }
+    // v2.17: esquina de redimensionado (como en el menu de ARCX): tres rayas en diagonal
+    {
+        float gripS = H * 0.035f;
+        float cw = ImGui::GetContentRegionAvail().x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cw - gripS);
+        ImVec2 gripPos = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##panelGrip", ImVec2(gripS, gripS));
+        static ImVec2 gripOff; static bool panelResized = false;
+        ImVec2 wp = ImGui::GetWindowPos();
+        if (ImGui::IsItemActivated()) gripOff = ImVec2(wp.x + ImGui::GetWindowSize().x - io.MousePos.x, 0.0f);
+        if (ImGui::IsItemActive()) {
+            g_cfg.panelAncho = Clampf((io.MousePos.x + gripOff.x - wp.x) / W, 0.36f, 0.70f);
+            panelResized = true; g_cfgDirty = true;
+        }
+        if (ImGui::IsItemDeactivated()) { if (panelResized) { SaveCfg(); panelResized = false; } }
+        const ImU32 gc = ImGui::IsItemActive() ? IM_COL32(10, 200, 255, 255) : IM_COL32(190, 192, 205, 200);
+        const float e = gripS * 0.82f;
+        for (int k = 0; k < 3; k++) {
+            const float o = e * (0.30f + 0.28f * (float)k);
+            dl->AddLine(ImVec2(gripPos.x + gripS - H*0.006f, gripPos.y + gripS - o), ImVec2(gripPos.x + gripS - o, gripPos.y + gripS - H*0.006f), gc, H*0.003f);
+        }
+    }
     // borde en degradado azul alrededor de toda la ventana
     ImDrawList* fg = ImGui::GetForegroundDrawList();
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
@@ -1165,6 +1263,15 @@ static bool IsMapped(const void* p) {
 // asi que no se llama a nada del juego: solo se lee el modelo en 0x32
 // (verificado por el log v2.13: 445 Admiral / 509 Bike) y se compara con
 // la lista. Fail-open: modelo fuera de rango -> la rueda ABRE.
+// v2.17: el bloqueo se registra como mucho una vez cada 2 s (antes salia
+// dos veces por cada doble toque al claxon: por el boton 7 y por la zona)
+static void LogBlocked() {
+    static auto last = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::seconds(2)) return;
+    last = now;
+    Log("claxon en vehiculo sin radio: rueda bloqueada");
+}
 static bool VehicleHasRadio(void* veh) {
     if (!veh || !IsMapped(veh)) { Log("  radio: sin vehiculo, asumo radio"); return true; }
     if (!IsMapped((char*)veh + 0x32)) { Log("  radio: modelo no mapeado, asumo radio"); return true; }
@@ -1354,7 +1461,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             // v2.16: arrastrar el boton flotante (si no esta bloqueado)
             if (g_btnDrag && !g_cfg.btnBloq) {
                 float dx = e.x - g_dragSX, dy = e.y - g_dragSY;
-                float thr = (float)h * 0.012f;
+                float thr = (float)h * 0.02f;  // v2.17: antes 0.012H - el temblor del dedo movia el boton en vez de tocarlo
                 if (!g_btnMoved && dx*dx + dy*dy > thr*thr) g_btnMoved = true;
                 if (g_btnMoved) {
                     float bs = BtnSize((float)h);
@@ -1392,7 +1499,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     if (now - lastHornTap < std::chrono::milliseconds(500)) {
                         if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
                         else if (g_hasRadio) ToggleWheel("doble claxon");
-                        else Log("claxon en vehiculo sin radio: rueda bloqueada");
+                        else LogBlocked();
                     }
                     lastHornTap = now;
                 }
@@ -1418,7 +1525,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 else if (!g_open && !g_preview && !g_settings && !g_paused && g_inVehicle && g_hasRadio) {
                     static auto lastBtnTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
-                    if (now - lastBtnTap < std::chrono::milliseconds(400)) {
+                    if (now - lastBtnTap < std::chrono::milliseconds(600)) {  // v2.17: antes 400 ms - a veces no daba tiempo al segundo toque
                         g_btnPending = false;
                         g_settings = true;
                         PlayClick(false);
@@ -1437,10 +1544,10 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             }
             mouseDown = false; }
     }
-    // v2.1: un solo toque al boton flotante = siguiente estacion (si no llega un segundo toque en 400 ms)
+    // v2.1: un solo toque al boton flotante = siguiente estacion (si no llega un segundo toque en 600 ms)
     if (g_btnPending) {
         if (g_open || g_settings || g_paused || !g_hasRadio) g_btnPending = false;  // rueda, panel, pausa o sin radio: no cambiar de estacion
-        else if (std::chrono::steady_clock::now() - g_btnPendingAt > std::chrono::milliseconds(400)) {
+        else if (std::chrono::steady_clock::now() - g_btnPendingAt > std::chrono::milliseconds(600)) {
             g_btnPending = false;
             int next = g_current % 13 + 1;
             ApplyStation(next);
@@ -1475,7 +1582,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             if (now - lastHornTap < std::chrono::milliseconds(500)) {
                 if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
                 else if (!g_settings && g_hasRadio) ToggleWheel("doble claxon (boton 7)");
-                else if (!g_settings) Log("claxon en vehiculo sin radio: rueda bloqueada");
+                else if (!g_settings) LogBlocked();
             }
             lastHornTap = now;
         }
