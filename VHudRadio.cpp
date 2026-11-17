@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.5 1.5.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.6 1.6.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,6 +10,13 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v1.6: CALIBRAR CLAXON - el volcado CPad de la v1.5 salio IDENTICO en los 120
+// volcados: el estado del claxon NO esta en los primeros 256 bytes de CPad (o no
+// esta en CPad). Mientras se sigue buscando (volcado ampliado a 2048 bytes), la
+// rueda trae un boton "Calibrar claxon": lo tocas, luego tocas el boton de claxon
+// del juego, y la zona queda guardada en /storage/emulated/0/vhud/horn_pos.txt.
+// Si mueves el boton de claxon en los controles del juego, lo recalibras con un
+// toque. La zona ya no es fija: es la que tu calibraste.
 // v1.5: la rueda ahora se queda ABIERTA hasta tocar una estacion (antes solo el
 // arrastre elegia: un toque directo a un segmento no lo seleccionaba, asi que habia
 // que mantener el dedo puesto). Tocar un segmento lo aplica y cierra; tocar fuera
@@ -64,9 +71,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.5.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.6.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.5.0-beta"
+#define VHUDRADIO_VERSION "1.6.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -105,13 +112,31 @@ static GetPadFn g_getPad = nullptr;  // CPad::GetPad(0) = pad del jugador
 // v1.1 intento CPad::GetHorn, pero NO existe en libGTASA.so 2.10 (FALTA en el log).
 // v1.2 uso una zona estimada (y 0.40-0.62H) y fallo: los toques reales de Daniel
 // (log v1.3, toques #1-7) caen en (2258, 735) en 2408x1080, o sea (0.938W, 0.683H),
-// justo DEBAJO de la zona estimada. v1.4: circulo centrado en ese punto real,
-// radio 0.07H (~76px). Los toques del boton flotante quedan a >=105px del centro,
-// fuera del circulo. El toque pasa al juego igual: el claxon suena y la rueda se abre.
+// justo DEBAJO de la zona estimada. v1.4: circulo centrado en ese punto real.
+// v1.6: el centro ya no es fijo: se calibra con un toque (boton "Calibrar claxon"
+// bajo la rueda) y se guarda en horn_pos.txt. Si mueves el boton de claxon en los
+// controles del juego, lo recalibras. El toque pasa al juego igual: el claxon
+// suena y la rueda se abre.
+static float g_hornCx = 0.938f, g_hornCy = 0.683f;  // centro del claxon (fraccion de W/H)
+static bool g_calibrating = false;  // v1.6: esperando el toque al boton de claxon
 static bool InHornRegion(float x, float y, float W, float H) {
-    float cx = W*0.938f, cy = H*0.683f, r = H*0.07f;
+    float cx = W*g_hornCx, cy = H*g_hornCy, r = H*0.07f;
     float dx = x - cx, dy = y - cy;
     return dx*dx + dy*dy <= r*r;
+}
+static void LoadHornPos() {
+    FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "r");
+    if (f) { float x = 0, y = 0; if (fscanf(f, "%f %f", &x, &y) == 2 && x > 0.05f && x < 0.99f && y > 0.05f && y < 0.99f) { g_hornCx = x; g_hornCy = y; } fclose(f); }
+}
+static void SaveHornPos() {
+    FILE* f = fopen("/storage/emulated/0/vhud/horn_pos.txt", "w");
+    if (f) { fprintf(f, "%.3f %.3f
+", g_hornCx, g_hornCy); fclose(f); }
+}
+// rectangulo del boton "Calibrar claxon" bajo la rueda (misma geometria que el dibujo)
+static bool InCalButton(float x, float y, float W, float H) {
+    float cx = W*0.5f, cy = H*0.90f;
+    return x >= cx - W*0.13f && x <= cx + W*0.13f && y >= cy - H*0.03f && y <= cy + H*0.03f;
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -280,6 +305,11 @@ static void DrawWheel(float W, float H) {
     ImGui::Begin("##vhudradio-name", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
     ImGui::Text("%s", kStationName[g_selected]);
     ImGui::End();
+    // v1.6: boton "Calibrar claxon" (etiqueta visual; el toque se detecta en DrawFrame)
+    ImGui::SetNextWindowPos(ImVec2(c.x, c.y + R + H*0.10f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::Begin("##vhudradio-cal", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+    ImGui::Text("[ Calibrar claxon ]");
+    ImGui::End();
 }
 
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
@@ -316,6 +346,22 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 if (seg >= 1) { g_wheelTouch = true; if (seg != g_selected) { g_selected = seg; Log("rueda: segmento %d (%s)", seg, kStationName[seg]); } }
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
+            // v1.6: modo calibracion - este toque ES el boton de claxon del juego
+            if (g_calibrating && g_inVehicle) {
+                float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
+                if (io.MousePos.x >= bp.x && io.MousePos.x <= bp.x+bs && io.MousePos.y >= bp.y && io.MousePos.y <= bp.y+bs) {
+                    g_calibrating = false; Log("calibracion de claxon cancelada (tocaste el boton flotante)");
+                } else {
+                    g_hornCx = io.MousePos.x / (float)w; g_hornCy = io.MousePos.y / (float)h;
+                    SaveHornPos(); g_calibrating = false;
+                    Log("claxon calibrado en (%.0f, %.0f) = (%.3f, %.3f) - guardado en horn_pos.txt", io.MousePos.x, io.MousePos.y, g_hornCx, g_hornCy);
+                }
+            }
+            // v1.6: toque al boton "Calibrar claxon" bajo la rueda -> entrar en modo calibracion
+            if (g_open && !g_calibrating && InCalButton(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
+                g_calibrating = true; g_open = false; g_wheelTouch = false;
+                Log("modo calibracion de claxon: toca el boton del claxon del juego");
+            }
             // v1.5: tocar un segmento lo elige al instante (antes solo el arrastre elegia)
             if (g_open) {
                 int seg = SegmentAt(io.MousePos.x, io.MousePos.y, (float)w, (float)h);
@@ -360,22 +406,30 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
     }
-    // v1.5: diagnostico del claxon - volcar CPad (256 bytes) cada ~0.25 s, max 120 veces,
-    // para encontrar el byte que cambia al pulsar el claxon. Se lee, nunca se escribe.
+    // v1.6: diagnostico del claxon AMPLIADO - los primeros 256 bytes de CPad salieron
+    // identicos en los 120 volcados de la v1.5. Ahora 2048 bytes, cada ~0.08 s, max 60.
+    // Para que el volcado atrape el claxon pulsado, hay que MANTENERLO pulsado 2-3 s.
     if (g_inVehicle && g_getPad) {
         static int padFrame = 0, padN = 0;
-        if (++padFrame % 15 == 0 && padN < 120) {
+        if (++padFrame % 5 == 0 && padN < 60) {
             void* pad = g_getPad(0);
             if (pad) {
                 padN++;
-                char hex[520]; const unsigned char* b = (const unsigned char*)pad;
-                for (int i = 0; i < 256; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
-                hex[512] = 0;
+                static char hex[4100]; const unsigned char* b = (const unsigned char*)pad;
+                for (int i = 0; i < 2048; i++) { hex[i*2] = "0123456789abcdef"[b[i] >> 4]; hex[i*2+1] = "0123456789abcdef"[b[i] & 15]; }
+                hex[4096] = 0;
                 Log("pad #%d %s", padN, hex);
             }
         }
     }
     if (!g_inVehicle) g_open = false;  // fuera del coche la rueda se cierra sola
+    // v1.6: aviso en pantalla mientras se calibra el claxon
+    if (g_calibrating) {
+        ImGui::SetNextWindowPos(ImVec2((float)w*0.5f, (float)h*0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::Begin("##vhudradio-calmsg", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+        ImGui::Text("Toca el boton del claxon del juego");
+        ImGui::End();
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
     if (g_inVehicle) DrawWheel((float)w, (float)h);
@@ -401,6 +455,8 @@ extern "C" void OnModLoad() {
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
     g_vhudDir = "/storage/emulated/0/vhud";
     mkdir(g_vhudDir.c_str(), 0777); mkdir((g_vhudDir + "/radio").c_str(), 0777);
+    LoadHornPos();
+    Log("  centro del claxon: (%.3f, %.3f)", g_hornCx, g_hornCy);
     Log("== VHud Radio Wheel %s cargado ==", VHUDRADIO_VERSION);
     Log("carpeta de iconos: %s/radio/ (radio_1.png ... radio_13.png)", g_vhudDir.c_str());
 
