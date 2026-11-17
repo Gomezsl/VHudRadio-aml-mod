@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.14.0-beta
+# VHud Radio Wheel 2.15.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -21,15 +21,17 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   cada frame mientras está abierta (la v2.6 solo los escribía al abrir y el
   juego los borraba), con un registro en el log cada segundo para confirmar
   que la escala se mantiene en 0.30.
-- Vehículos sin radio (bicis, tractores, patrullas): BLOQUEO por modelo. El
-  log de la v2.13 probó que el modelo está en 0x32 (carro Admiral 445, bici
-  509) y que la función GetVehicleAudioSettings existe en el juego: al entrar
-  a un vehículo se lee su modelo y su RadioType oficial (0 = civil, con
-  radio; 1 = especial, 3 = emergencia, -1 = sin radio). Sin radio civil la
-  rueda NO se abre (ni por claxon ni por zona) y el botón flotante no cambia
-  de estación. El panel de personalización y la vista previa siguen
-  disponibles. Ante cualquier duda (sin lectura, modelo raro) la rueda ABRE
-  para no bloquear un carro por error.
+- Vehículos sin radio (bicis, tractores, patrullas): BLOQUEO por lista de
+  modelos. La v2.14 se cerraba al llamar a la función GetVehicleAudioSettings
+  del juego (el símbolo resuelve pero no es código llamable en este teléfono),
+  así que la v2.15 ya no llama a ninguna función del juego: al entrar a un
+  vehículo se lee su modelo (en 0x32, verificado por el log de la v2.13) y se
+  compara con la lista de modelos sin radio civil (bicis 481/509/510,
+  emergencia, patrullas 596-599, SWAT 601, especiales/RC/trabajo). Sin radio
+  civil la rueda NO se abre (ni por claxon ni por zona) y el botón flotante
+  no cambia de estación. El panel de personalización y la vista previa siguen
+  disponibles. Ante cualquier duda (modelo raro) la rueda ABRE para no
+  bloquear un carro por error.
 - La pausa se detecta por varias señales (CMenuManager, CTimer::m_UserPause
   y CMenuManager::DrawFrontEnd) para que la UI no se vea en el menú de pausa.
 
