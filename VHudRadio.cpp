@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.5 2.5.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.6.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,27 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.6: PANEL PROPIO AZUL + 2 COLORES + RALENTIZACION + PAUSA DE VERDAD + RADIOTYPE
+// - La pausa SEGUIA sin esconder la UI en la v2.5: ahora se detecta por varias
+//   senales a la vez (byte 0x5C de CMenuManager, CTimer::m_UserPause /
+//   m_CodePause, y si CMenuManager::DrawFrontEnd se llamo en este frame), y el
+//   log registra que senal disparo y que bytes del objeto CMenuManager cambian
+//   (para encontrar el byte real de pausa en este telefono).
+// - El panel ya no es la ventana de ImGui por defecto: es un panel propio azul
+//   casi oscuro, sin barra de titulo, con deslizadores, recuadros y botones
+//   dibujados a mano (como ARCX, no como ImGui).
+// - El color del anillo ya no tiene el panel RGB siempre abierto: se toca un
+//   recuadro pequeno para abrirlo, y hay un segundo recuadro para el color del
+//   texto del centro de la rueda (nuevo ajuste texto=r,g,b en el .ini).
+// - Al abrir la rueda el juego va lento (ralentizacion estilo GTA V, con el
+//   slow-motion propio del juego: CTimer::bSlowMotionActive /
+//   ms_fSlowMotionScale, o ms_fTimeScale si no resuelven); al cerrarla vuelve
+//   a velocidad normal.
+// - RadioType (del texto de la imagen): se lee el byte candidato
+//   (CVehicle 0x138 + audio 0x80 + radio 0x1B = 0x1D3) y se registra en el
+//   log al entrar a un vehiculo, con una ventana de bytes y la estacion
+//   actual, para confirmar el offset del telefono antes de bloquear la rueda
+//   en bicis/tractores/patrullas (en la v2.6 aun no bloquea nada).
 // v2.5: PANEL ESTILO ARCX + PANEL RGB TACTIL
 // - El panel ahora usa el diseno de ARCX (3.1.35-3.1.40): violeta ARCX
 //   (0.45, 0.30, 0.95), fondo oscuro tintado, titulo centrado y borde en
@@ -153,9 +174,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.5.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.6.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.5.0-beta"
+#define VHUDRADIO_VERSION "2.6.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -282,7 +303,8 @@ static void LoadHornPos() {
 // ---- ajustes de la rueda (v2.2): se guardan en data/configs/VHudRadio.ini ----
 // [VHudRadio] fondo=30 (0..100, oscuridad del fondo) tamano=36 (25..45, % de H)
 // anillo=0,210,255 (color del anillo de seleccion, 0..255)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; };
+// texto=255,255,255 (color del texto del centro de la rueda, 0..255) (v2.6)
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; };
 static WheelCfg g_cfg;
 static bool g_settings = false;   // v2.2: panel de personalizacion abierto
 static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
@@ -295,10 +317,11 @@ static void SaveCfg() {
     fprintf(f, "fondo=%d\n", g_cfg.fondo);
     fprintf(f, "tamano=%d\n", g_cfg.tamano);
     fprintf(f, "anillo=%d,%d,%d\n", g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
+    fprintf(f, "texto=%d,%d,%d\n", g_cfg.textoR, g_cfg.textoG, g_cfg.textoB);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -324,6 +347,10 @@ static void LoadCfg() {
             int r = 0, g = 0, b = 0;
             if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.ringR = r; g_cfg.ringG = g; g_cfg.ringB = b; }
         }
+        else if (strcmp(k, "texto") == 0) {
+            int r = 255, g = 255, b = 255;
+            if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.textoR = r; g_cfg.textoG = g; g_cfg.textoB = b; }
+        }
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -331,8 +358,11 @@ static void LoadCfg() {
     if (g_cfg.ringR < 0) g_cfg.ringR = 0; if (g_cfg.ringR > 255) g_cfg.ringR = 255;
     if (g_cfg.ringG < 0) g_cfg.ringG = 0; if (g_cfg.ringG > 255) g_cfg.ringG = 255;
     if (g_cfg.ringB < 0) g_cfg.ringB = 0; if (g_cfg.ringB > 255) g_cfg.ringB = 255;
+    if (g_cfg.textoR < 0) g_cfg.textoR = 0; if (g_cfg.textoR > 255) g_cfg.textoR = 255;
+    if (g_cfg.textoG < 0) g_cfg.textoG = 0; if (g_cfg.textoG > 255) g_cfg.textoG = 255;
+    if (g_cfg.textoB < 0) g_cfg.textoB = 0; if (g_cfg.textoB > 255) g_cfg.textoB = 255;
     if (fromOld) SaveCfg();  // escribirlo ya en la ruta nueva
-    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
+    Log("  ajustes: %s (fondo=%d tamano=%d anillo=%d,%d,%d texto=%d,%d,%d)", CfgPath().c_str(), g_cfg.fondo, g_cfg.tamano, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.textoR, g_cfg.textoG, g_cfg.textoB);
 }
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
@@ -367,6 +397,36 @@ static int g_menuCheck = 0;            // v2.4: 0 = sin verificar, 1 = offset va
 static bool MenuActive() {
     if (!g_menuManager || g_menuCheck == -1) return false;
     return ((const unsigned char*)g_menuManager)[0x5C] != 0;  // m_bMenuActive (plugin-sdk CMenuManager)
+}
+// v2.6: mas senales de pausa (el byte 0x5C solo no basto en la v2.5) y ralentizacion
+static bool* g_userPause = nullptr;   // CTimer::m_UserPause (pausa del usuario)
+static bool* g_codePause = nullptr;   // CTimer::m_CodePause (pausa por codigo/cinematica)
+static bool g_menuDrawn = false;      // CMenuManager::DrawFrontEnd se llamo en este frame
+static bool* g_slowActive = nullptr;  // CTimer::bSlowMotionActive (slow-motion propio del juego)
+static float* g_slowScale = nullptr;  // CTimer::ms_fSlowMotionScale
+static float* g_timeScale = nullptr;  // CTimer::ms_fTimeScale (respaldo si no hay slow-motion)
+static void (*DrawFrontEnd_orig)() = nullptr;
+static void DrawFrontEnd_hook() {
+    g_menuDrawn = true;
+    if (DrawFrontEnd_orig) DrawFrontEnd_orig();
+}
+// v2.6: diagnostico - registra que bytes del objeto CMenuManager cambian, para
+// encontrar el byte real de pausa en este telefono (el 0x5C no basto en la v2.5)
+static unsigned char g_menuSnap[96];
+static bool g_menuSnapInit = false;
+static int g_menuSnapTick = 0;
+static void MenuSnapCheck() {
+    if ((++g_menuSnapTick % 30) != 0) return;
+    const unsigned char* m = (const unsigned char*)g_menuManager;
+    if (!g_menuSnapInit) { memcpy(g_menuSnap, m, 96); g_menuSnapInit = true; return; }
+    char buf[1024]; int n = 0;
+    n += snprintf(buf + n, sizeof buf - (size_t)n, "menu: bytes que cambiaron:");
+    bool diff = false;
+    for (int i = 0; i < 96; i++) {
+        if (m[i] != g_menuSnap[i]) { diff = true; n += snprintf(buf + n, sizeof buf - (size_t)n, " [%02X]=%02X", i, m[i]); }
+    }
+    if (diff) Log("%s", buf);
+    memcpy(g_menuSnap, m, 96);
 }
 // v2.4: FrontEndMenuManager es una REFERENCIA (puntero al objeto) en plugin-sdk:
 // GetSym devuelve la direccion del puntero, hay que desreferenciarla. Si el
@@ -582,8 +642,11 @@ static void DrawWheel(float W, float H) {
     const char* tag = kStationTag[g_selected];
     ImVec2 nsz = font->CalcTextSizeA(nameSize, FLT_MAX, 0.0f, name, nullptr);
     ImVec2 tsz = font->CalcTextSizeA(tagSize, FLT_MAX, 0.0f, tag, nullptr);
-    dl->AddText(font, nameSize, ImVec2(c.x - nsz.x*0.5f, c.y - nsz.y*0.5f - H*0.015f), IM_COL32(255,255,255,255), name);
-    dl->AddText(font, tagSize, ImVec2(c.x - tsz.x*0.5f, c.y + nsz.y*0.5f + H*0.005f), IM_COL32(200,225,235,230), tag);
+    // v2.6: el texto del centro usa el color elegido (por defecto blanco)
+    ImU32 txtCol = IM_COL32(g_cfg.textoR, g_cfg.textoG, g_cfg.textoB, 255);
+    ImU32 tagCol = IM_COL32((int)(g_cfg.textoR * 0.8f), (int)(g_cfg.textoG * 0.8f), (int)(g_cfg.textoB * 0.8f), 230);
+    dl->AddText(font, nameSize, ImVec2(c.x - nsz.x*0.5f, c.y - nsz.y*0.5f - H*0.015f), txtCol, name);
+    dl->AddText(font, tagSize, ImVec2(c.x - tsz.x*0.5f, c.y + nsz.y*0.5f + H*0.005f), tagCol, tag);
     // v2.2: marca de vista previa
     if (g_preview) {
         const char* pv = "VISTA PREVIA";
@@ -592,16 +655,16 @@ static void DrawWheel(float W, float H) {
     }
 }
 
-// ---- diseno del panel estilo ARCX (violeta + degradado azul -> morado) --------
+// ---- diseno del panel (azul casi oscuro + degradado azul -> azul claro) --------
 static ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t) {
     return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w);
 }
 static float Clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-static const ImVec4 kPanelAccent(0.45f, 0.30f, 0.95f, 1.0f);   // violeta ARCX
+static const ImVec4 kPanelAccent(0.10f, 0.45f, 1.0f, 1.0f);   // azul (v2.6: el panel ya no es violeta)
 static const ImVec4 kPanelGradBlue(0.05f, 0.55f, 1.00f, 1.0f); // azul del degradado del logo
-static const ImVec4 kPanelGradPurple(0.65f, 0.20f, 0.95f, 1.0f); // morado del degradado
+static const ImVec4 kPanelGradCyan(0.10f, 0.65f, 1.0f, 1.0f); // azul claro del degradado
 static ImVec4 PanelGradL() { return Mix(kPanelAccent, kPanelGradBlue, 0.55f); }
-static ImVec4 PanelGradR() { return Mix(kPanelAccent, kPanelGradPurple, 0.55f); }
+static ImVec4 PanelGradR() { return Mix(kPanelAccent, kPanelGradCyan, 0.55f); }
 // Borde con degradado (izquierda -> derecha) siguiendo un rectangulo redondeado.
 // Se dibuja como segmentos de linea gruesa con el color interpolado por la x;
 // un circulo en cada union evita huecos en las esquinas (igual que en ARCX).
@@ -637,143 +700,215 @@ static void AddGradientBorder(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1
 // sincroniza desde g_cfg (asi refleja tambien el restablecer).
 static float g_pickH = 0.52f, g_pickS = 1.0f, g_pickV = 1.0f;
 static bool g_cfgDirty = false;  // v2.5: algo cambio y aun no se guardo en el .ini
-static void PickerSyncFromRGB() { ImGui::ColorConvertRGBtoHSV(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, g_pickH, g_pickS, g_pickV); }
+static int g_pickTarget = -1;  // v2.6: -1 = selector cerrado, 0 = anillo, 1 = texto del centro
+static void PickerSyncFromRGB() {
+    int r, g, b;
+    if (g_pickTarget == 1) { r = g_cfg.textoR; g = g_cfg.textoG; b = g_cfg.textoB; }
+    else { r = g_cfg.ringR; g = g_cfg.ringG; b = g_cfg.ringB; }
+    ImGui::ColorConvertRGBtoHSV(r / 255.0f, g / 255.0f, b / 255.0f, g_pickH, g_pickS, g_pickV);
+}
 static void PickerApplyToRGB() {
     float r, g, b;
     ImGui::ColorConvertHSVtoRGB(g_pickH, g_pickS, g_pickV, r, g, b);
-    g_cfg.ringR = (int)(r * 255.0f + 0.5f);
-    g_cfg.ringG = (int)(g * 255.0f + 0.5f);
-    g_cfg.ringB = (int)(b * 255.0f + 0.5f);
+    int ri = (int)(r * 255.0f + 0.5f), gi = (int)(g * 255.0f + 0.5f), bi = (int)(b * 255.0f + 0.5f);
+    if (g_pickTarget == 1) { g_cfg.textoR = ri; g_cfg.textoG = gi; g_cfg.textoB = bi; }
+    else { g_cfg.ringR = ri; g_cfg.ringG = gi; g_cfg.ringB = bi; }
+}
+// ---- controles propios del panel (no los de ImGui por defecto) ----------------
+// Deslizador propio: etiqueta a la izquierda, valor a la derecha, pista
+// redondeada con relleno azul y tirador blanco. Se arrastra con el dedo.
+static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const char* fmt, float H) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float w = ImGui::GetContentRegionAvail().x;
+    ImVec2 lp = ImGui::GetCursorScreenPos();
+    dl->AddText(lp, IM_COL32(150, 190, 255, 255), label);
+    char vb[16]; snprintf(vb, sizeof vb, fmt, *v);
+    ImVec2 vs = ImGui::CalcTextSize(vb);
+    dl->AddText(ImVec2(lp.x + w - vs.x, lp.y), IM_COL32(255, 255, 255, 255), vb);
+    ImGui::Dummy(ImVec2(w, ImGui::GetTextLineHeight()));
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    float zoneH = H * 0.045f;
+    ImGui::InvisibleButton(label, ImVec2(w, zoneH));
+    bool active = ImGui::IsItemActive();
+    ImGuiIO& io = ImGui::GetIO();
+    bool changed = false;
+    if (active && io.MouseDown[0]) {
+        float f = (io.MousePos.x - p0.x) / w;
+        int nv = vmin + (int)(f * (float)(vmax - vmin) + 0.5f);
+        if (nv < vmin) nv = vmin; if (nv > vmax) nv = vmax;
+        if (nv != *v) { *v = nv; changed = true; }
+    }
+    float cy = p0.y + zoneH * 0.5f;
+    float r = H * 0.013f;
+    dl->AddRectFilled(ImVec2(p0.x, cy - r), ImVec2(p0.x + w, cy + r), IM_COL32(8, 14, 32, 255), r);
+    float f = (float)(*v - vmin) / (float)(vmax - vmin);
+    if (f > 0.0f) dl->AddRectFilled(ImVec2(p0.x, cy - r), ImVec2(p0.x + w * f, cy + r), IM_COL32(20, 110, 255, 255), r);
+    float hx = p0.x + w * f;
+    dl->AddCircleFilled(ImVec2(hx, cy), r + H*0.006f, IM_COL32(255, 255, 255, 255), 24);
+    dl->AddCircle(ImVec2(hx, cy), r + H*0.006f, IM_COL32(20, 110, 255, 255), 24, H*0.002f);
+    return changed;
+}
+// Boton propio: rectangulo redondeado con degradado azul y texto centrado.
+// Devuelve true al soltar el dedo sobre el (como un boton de ImGui).
+static bool PanelButton(const char* label, float H) {
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x;
+    float bh = H * 0.050f;
+    bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
+    bool active = ImGui::IsItemActive();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImU32 c0 = active ? IM_COL32(40, 140, 255, 255) : IM_COL32(16, 90, 220, 255);
+    ImU32 c1 = active ? IM_COL32(10, 90, 230, 255) : IM_COL32(8, 50, 160, 255);
+    dl->AddRectFilledMultiColor(p0, ImVec2(p0.x + w, p0.y + bh), c0, c1, c1, c0);
+    dl->AddRect(p0, ImVec2(p0.x + w, p0.y + bh), IM_COL32(120, 180, 255, 120), H*0.008f, 0, H*0.0015f);
+    ImVec2 ts = ImGui::CalcTextSize(label);
+    dl->AddText(ImVec2(p0.x + (w - ts.x) * 0.5f, p0.y + (bh - ts.y) * 0.5f), IM_COL32(255, 255, 255, 255), label);
+    return clicked;
+}
+// Recuadro pequeno de color: al tocarlo se abre/cierra el panel RGB para ese color.
+static bool PanelSwatch(const char* label, ImVec4 col, bool active, float H) {
+    float s = H * 0.055f;
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    bool clicked = ImGui::InvisibleButton(label, ImVec2(s, s));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + s, p0.y + s), ImGui::GetColorU32(col), H*0.008f);
+    if (active) dl->AddRect(p0, ImVec2(p0.x + s, p0.y + s), IM_COL32(255, 255, 255, 255), H*0.008f, 0, H*0.003f);
+    else dl->AddRect(p0, ImVec2(p0.x + s, p0.y + s), IM_COL32(255, 255, 255, 90), H*0.008f, 0, H*0.0015f);
+    return clicked;
 }
 
 // v2.2: panel de personalizacion (se abre con doble toque al boton flotante)
 static void DrawSettings(float W, float H) {
-    // paleta ARCX: violeta, fondo oscuro tintado, titulo claro
-    const ImVec4 accent = kPanelAccent;
-    const ImVec4 titleCol = Mix(accent, ImVec4(1, 1, 1, 1), 0.55f);
-    const ImVec4 bgCol = Mix(ImVec4(0.045f, 0.047f, 0.060f, 0.97f), accent, 0.13f);
-    const ImVec4 btnHov = Mix(accent, ImVec4(1, 1, 1, 1), 0.20f);
-    const ImVec4 btnAct = Mix(accent, ImVec4(0, 0, 0, 1), 0.25f);
-    const ImVec4 frameCol(0.10f, 0.10f, 0.18f, 1.0f);
-    const ImVec4 frameHov = Mix(frameCol, accent, 0.35f);
+    // v2.6: panel propio (no la ventana de ImGui por defecto) - azul casi oscuro,
+    // sin barra de titulo, con deslizadores, recuadros y botones dibujados a mano
+    const ImVec4 titleCol(0.75f, 0.85f, 1.0f, 1.0f);  // azul claro
+    const ImVec4 subCol(0.55f, 0.65f, 0.85f, 1.0f);   // azul grisaceo
     ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(W * 0.42f, 0), ImGuiCond_Always);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.012f, H*0.012f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.011f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(H*0.012f, H*0.010f));
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, H*0.03f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(W * 0.44f, 0), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.014f, H*0.014f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.010f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, H*0.015f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, H*0.008f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgCol);
-    ImGui::PushStyleColor(ImGuiCol_TitleBg, Mix(accent, ImVec4(0, 0, 0, 1), 0.45f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, accent);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.05f, 0.13f, 0.97f));  // azul casi oscuro
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
-    ImGui::PushStyleColor(ImGuiCol_Button, accent);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHov);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnAct);
-    ImGui::PushStyleColor(ImGuiCol_SliderGrab, accent);
-    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, btnHov);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, frameCol);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, frameHov);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, frameHov);
-    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(accent.x, accent.y, accent.z, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0.10f, 0.45f, 1.0f, 0.5f));
     if (g_fontUI) ImGui::PushFont(g_fontUI);
-    bool opened = ImGui::Begin("Personalizar rueda de radio", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-    if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleColor(13); ImGui::PopStyleVar(8); return; }
-    ImGui::Text("Fondo, tamano y color del anillo.");
-    ImGui::Text("Se guardan en configs/VHudRadio.ini");
-    ImGui::Separator();
-    ImGui::TextColored(titleCol, "Oscuridad del fondo");
-    if (ImGui::SliderInt("##fondo", &g_cfg.fondo, 0, 100, "%d%%")) g_cfgDirty = true;
-    ImGui::TextColored(titleCol, "Tamano de la rueda");
-    if (ImGui::SliderInt("##tamano", &g_cfg.tamano, 25, 45, "%d%%")) g_cfgDirty = true;
-    ImGui::TextColored(titleCol, "Color del anillo");
-    // ---- panel RGB tactil (como ARCX 3.1.38): cuadro saturacion/valor + barra de tono ----
+    bool opened = ImGui::Begin("##vhudpanel", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleColor(3); ImGui::PopStyleVar(4); return; }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImGuiIO& io = ImGui::GetIO();
-    const float gap = H * 0.012f;
-    const float hueW = H * 0.045f;
-    float availW = ImGui::GetContentRegionAvail().x;
-    float sq = availW - hueW - gap;
-    if (sq > H * 0.24f) sq = H * 0.24f;   // no mas alto que el 24% de la pantalla (que quepa el panel)
-    if (sq < H * 0.16f) sq = H * 0.16f;
-    float rowW = sq + gap + hueW;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - rowW) * 0.5f);  // centrar el panel de color
-    ImVec2 sq0 = ImGui::GetCursorScreenPos();
-    ImGui::InvisibleButton("##sv", ImVec2(sq, sq));
-    bool svActive = ImGui::IsItemActive();
-    ImGui::SameLine(0, gap);
-    ImVec2 hue0 = ImGui::GetCursorScreenPos();
-    ImGui::InvisibleButton("##hue", ImVec2(hueW, sq));
-    bool hueActive = ImGui::IsItemActive();
-    bool dragging = (svActive || hueActive) && io.MouseDown[0];
-    if (!dragging) PickerSyncFromRGB();
-    if (svActive && io.MouseDown[0]) {
-        g_pickS = Clampf((io.MousePos.x - sq0.x) / sq, 0.0f, 1.0f);
-        g_pickV = Clampf(1.0f - (io.MousePos.y - sq0.y) / sq, 0.0f, 1.0f);
-        PickerApplyToRGB(); g_cfgDirty = true;
-    } else if (hueActive && io.MouseDown[0]) {
-        g_pickH = Clampf((io.MousePos.y - hue0.y) / sq, 0.0f, 1.0f);
-        PickerApplyToRGB(); g_cfgDirty = true;
-    }
-    // cuadro saturacion/valor: arriba blanco -> color del tono, abajo negro
-    float hr, hg, hb;
-    ImGui::ColorConvertHSVtoRGB(g_pickH, 1.0f, 1.0f, hr, hg, hb);
-    const ImU32 hueCol = IM_COL32((int)(hr * 255.0f), (int)(hg * 255.0f), (int)(hb * 255.0f), 255);
-    dl->AddRectFilledMultiColor(sq0, ImVec2(sq0.x + sq, sq0.y + sq),
-        IM_COL32(255, 255, 255, 255), hueCol, IM_COL32(0, 0, 0, 255), IM_COL32(0, 0, 0, 255));
-    dl->AddRect(sq0, ImVec2(sq0.x + sq, sq0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
-    const ImU32 ringU = ImGui::GetColorU32(ImVec4(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, 1.0f));
-    const ImVec2 mk(sq0.x + g_pickS * sq, sq0.y + (1.0f - g_pickV) * sq);
-    dl->AddCircleFilled(mk, H*0.011f, ringU, 24);
-    dl->AddCircle(mk, H*0.011f, IM_COL32(255, 255, 255, 255), 24, H*0.003f);
-    // barra de tono: 24 franjas del arcoiris
-    const float seg = sq / 24.0f;
-    for (int k = 0; k < 24; k++) {
-        float rr, gg, bb;
-        ImGui::ColorConvertHSVtoRGB((float)k / 24.0f, 1.0f, 1.0f, rr, gg, bb);
-        dl->AddRectFilled(ImVec2(hue0.x, hue0.y + k * seg), ImVec2(hue0.x + hueW, hue0.y + (k + 1) * seg + 0.5f),
-            IM_COL32((int)(rr * 255.0f), (int)(gg * 255.0f), (int)(bb * 255.0f), 255));
-    }
-    dl->AddRect(hue0, ImVec2(hue0.x + hueW, hue0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
-    const float hy = hue0.y + g_pickH * sq;
-    dl->AddLine(ImVec2(hue0.x - H*0.004f, hy), ImVec2(hue0.x + hueW + H*0.004f, hy), IM_COL32(255, 255, 255, 255), H*0.003f);
-    // abajo: muestra del color + valores RGB y hexadecimal
-    const float readH = H * 0.045f;
-    ImVec2 sw0 = ImGui::GetCursorScreenPos();
-    ImGui::Dummy(ImVec2(H*0.040f, readH));
-    dl->AddRectFilled(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), ringU, H*0.008f);
-    dl->AddRect(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), IM_COL32(255, 255, 255, 255), H*0.008f, 0, H*0.002f);
-    ImGui::SameLine(0, H*0.016f);
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (readH - ImGui::GetTextLineHeight()) * 0.5f);
-    char vals[64];
-    snprintf(vals, sizeof vals, "R %d   G %d   B %d    #%02X%02X%02X", g_cfg.ringR, g_cfg.ringG, g_cfg.ringB, g_cfg.ringR, g_cfg.ringG, g_cfg.ringB);
-    ImGui::Text("%s", vals);
+    // titulo centrado + linea en degradado azul
+    const char* title = "Personalizar rueda de radio";
+    ImVec2 ts = ImGui::CalcTextSize(title);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ts.x) * 0.5f);
+    ImGui::TextColored(titleCol, "%s", title);
+    ImVec2 lp = ImGui::GetCursorScreenPos();
+    float lw = ImGui::GetContentRegionAvail().x;
+    dl->AddRectFilledMultiColor(lp, ImVec2(lp.x + lw, lp.y + H*0.003f), IM_COL32(20, 110, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(20, 110, 255, 255));
+    ImGui::Dummy(ImVec2(lw, H*0.010f));
+    ImGui::TextColored(subCol, "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini");
     ImGui::Separator();
-    if (ImGui::Button("Vista previa de la rueda", ImVec2(-1, 0))) {
+    if (PanelSlider("Oscuridad del fondo", &g_cfg.fondo, 0, 100, "%d%%", H)) g_cfgDirty = true;
+    if (PanelSlider("Tamano de la rueda", &g_cfg.tamano, 25, 45, "%d%%", H)) g_cfgDirty = true;
+    // recuadros de color: al tocar uno se abre el panel RGB para ese color
+    ImGui::BeginGroup();
+    if (PanelSwatch("##swAnillo", ImVec4(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, 1.0f), g_pickTarget == 0, H)) { g_pickTarget = (g_pickTarget == 0) ? -1 : 0; PlayClick(false); }
+    ImGui::SameLine(0, H*0.012f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (H*0.055f - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::Text("Anillo");
+    ImGui::EndGroup();
+    ImGui::SameLine(0, H*0.05f);
+    ImGui::BeginGroup();
+    if (PanelSwatch("##swTexto", ImVec4(g_cfg.textoR / 255.0f, g_cfg.textoG / 255.0f, g_cfg.textoB / 255.0f, 1.0f), g_pickTarget == 1, H)) { g_pickTarget = (g_pickTarget == 1) ? -1 : 1; PlayClick(false); }
+    ImGui::SameLine(0, H*0.012f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (H*0.055f - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::Text("Texto del centro");
+    ImGui::EndGroup();
+    if (g_pickTarget >= 0) {
+        ImGui::TextColored(titleCol, "%s", g_pickTarget == 1 ? "Color del texto del centro" : "Color del anillo");
+        // ---- panel RGB tactil (como ARCX 3.1.38): cuadro saturacion/valor + barra de tono ----
+        const float gap = H * 0.012f;
+        const float hueW = H * 0.045f;
+        float availW = ImGui::GetContentRegionAvail().x;
+        float sq = availW - hueW - gap;
+        if (sq > H * 0.20f) sq = H * 0.20f;   // que quepa el panel con el selector abierto
+        if (sq < H * 0.14f) sq = H * 0.14f;
+        float rowW = sq + gap + hueW;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - rowW) * 0.5f);
+        ImVec2 sq0 = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##sv", ImVec2(sq, sq));
+        bool svActive = ImGui::IsItemActive();
+        ImGui::SameLine(0, gap);
+        ImVec2 hue0 = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##hue", ImVec2(hueW, sq));
+        bool hueActive = ImGui::IsItemActive();
+        bool dragging = (svActive || hueActive) && io.MouseDown[0];
+        if (!dragging) PickerSyncFromRGB();
+        if (svActive && io.MouseDown[0]) {
+            g_pickS = Clampf((io.MousePos.x - sq0.x) / sq, 0.0f, 1.0f);
+            g_pickV = Clampf(1.0f - (io.MousePos.y - sq0.y) / sq, 0.0f, 1.0f);
+            PickerApplyToRGB(); g_cfgDirty = true;
+        } else if (hueActive && io.MouseDown[0]) {
+            g_pickH = Clampf((io.MousePos.y - hue0.y) / sq, 0.0f, 1.0f);
+            PickerApplyToRGB(); g_cfgDirty = true;
+        }
+        float hr, hg, hb;
+        ImGui::ColorConvertHSVtoRGB(g_pickH, 1.0f, 1.0f, hr, hg, hb);
+        const ImU32 hueCol = IM_COL32((int)(hr * 255.0f), (int)(hg * 255.0f), (int)(hb * 255.0f), 255);
+        dl->AddRectFilledMultiColor(sq0, ImVec2(sq0.x + sq, sq0.y + sq),
+            IM_COL32(255, 255, 255, 255), hueCol, IM_COL32(0, 0, 0, 255), IM_COL32(0, 0, 0, 255));
+        dl->AddRect(sq0, ImVec2(sq0.x + sq, sq0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
+        int cr, cg, cb;
+        if (g_pickTarget == 1) { cr = g_cfg.textoR; cg = g_cfg.textoG; cb = g_cfg.textoB; }
+        else { cr = g_cfg.ringR; cg = g_cfg.ringG; cb = g_cfg.ringB; }
+        const ImU32 pickU = ImGui::GetColorU32(ImVec4(cr / 255.0f, cg / 255.0f, cb / 255.0f, 1.0f));
+        const ImVec2 mk(sq0.x + g_pickS * sq, sq0.y + (1.0f - g_pickV) * sq);
+        dl->AddCircleFilled(mk, H*0.011f, pickU, 24);
+        dl->AddCircle(mk, H*0.011f, IM_COL32(255, 255, 255, 255), 24, H*0.003f);
+        const float seg = sq / 24.0f;
+        for (int k = 0; k < 24; k++) {
+            float rr, gg, bb;
+            ImGui::ColorConvertHSVtoRGB((float)k / 24.0f, 1.0f, 1.0f, rr, gg, bb);
+            dl->AddRectFilled(ImVec2(hue0.x, hue0.y + k * seg), ImVec2(hue0.x + hueW, hue0.y + (k + 1) * seg + 0.5f),
+                IM_COL32((int)(rr * 255.0f), (int)(gg * 255.0f), (int)(bb * 255.0f), 255));
+        }
+        dl->AddRect(hue0, ImVec2(hue0.x + hueW, hue0.y + sq), IM_COL32(255, 255, 255, 60), H*0.006f, 0, H*0.0015f);
+        const float hy = hue0.y + g_pickH * sq;
+        dl->AddLine(ImVec2(hue0.x - H*0.004f, hy), ImVec2(hue0.x + hueW + H*0.004f, hy), IM_COL32(255, 255, 255, 255), H*0.003f);
+        // abajo: muestra del color + valores RGB y hexadecimal
+        const float readH = H * 0.045f;
+        ImVec2 sw0 = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(H*0.040f, readH));
+        dl->AddRectFilled(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), pickU, H*0.008f);
+        dl->AddRect(sw0, ImVec2(sw0.x + H*0.040f, sw0.y + readH), IM_COL32(255, 255, 255, 255), H*0.008f, 0, H*0.002f);
+        ImGui::SameLine(0, H*0.016f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (readH - ImGui::GetTextLineHeight()) * 0.5f);
+        char vals[64];
+        snprintf(vals, sizeof vals, "R %d   G %d   B %d    #%02X%02X%02X", cr, cg, cb, cr, cg, cb);
+        ImGui::Text("%s", vals);
+    }
+    ImGui::Separator();
+    if (PanelButton("Vista previa de la rueda", H)) {
         g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
         PlayClick(false);
         Log("vista previa de la rueda");
     }
-    if (ImGui::Button("Restablecer todo", ImVec2(-1, 0))) {
-        g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255;
+    if (PanelButton("Restablecer todo", H)) {
+        g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
-    if (ImGui::Button("Cerrar", ImVec2(-1, 0))) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
-    ImGui::Text("Vista previa: toca un segmento para verlo, toca fuera para volver.");
+    if (PanelButton("Cerrar", H)) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
     // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)
     if (g_cfgDirty && io.MouseReleased[0]) { SaveCfg(); g_cfgDirty = false; }
-    // borde en degradado azul -> morado alrededor de toda la ventana (como ARCX)
+    // borde en degradado azul alrededor de toda la ventana
     ImDrawList* fg = ImGui::GetForegroundDrawList();
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     AddGradientBorder(fg, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), H*0.015f, H*0.004f, PanelGradL(), PanelGradR());
     ImGui::End();
     if (g_fontUI) ImGui::PopFont();
-    ImGui::PopStyleColor(13);
-    ImGui::PopStyleVar(8);
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(4);
 }
 
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
@@ -782,11 +917,44 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (ctx == EGL_NO_CONTEXT) return;
     EGLint w = 0, h = 0; eglQuerySurface(dpy, surf, EGL_WIDTH, &w); eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
     if (w < 200 || h < 200) return;
-    g_inVehicle = FindPlayerVehicle && FindPlayerVehicle(-1, false) != nullptr;
-    // v2.3: menu de pausa abierto -> esconder toda la UI (rueda, boton, panel)
+    void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
+    bool wasInVehicle = g_inVehicle;
+    g_inVehicle = veh != nullptr;
+    // v2.6: diagnostico RadioType - al entrar a un vehiculo, registrar el byte
+    // candidato (PC: CVehicle 0x138 + audio 0x80 + radio 0x1B = 0x1D3) y una
+    // ventana de bytes alrededor, mas la estacion actual, para confirmar el
+    // offset del telefono antes de bloquear la rueda en bicis/tractores/patrullas
+    if (g_inVehicle && !wasInVehicle && veh) {
+        const unsigned char* v = (const unsigned char*)veh;
+        char win[16*3+1]; int n = 0;
+        for (int i = 0; i < 16; i++) n += snprintf(win + n, sizeof win - (size_t)n, "%02X ", v[0x1C8 + i]);
+        Log("  vehiculo: %p radioType(0x1D3)=%d radioID(0x1D2)=%d estacion=%d bytes[0x1C8..0x1D7]=%s", veh, (int)(signed char)v[0x1D3], (int)v[0x1D2], g_current, win);
+    }
+    // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
+    // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
+    // CMenuManager::DrawFrontEnd se llamo en este frame (menu dibujado)
+    bool fe = g_menuDrawn; g_menuDrawn = false;
     bool wasPaused = g_paused;
-    g_paused = MenuActive();
-    if (g_paused != wasPaused) { Log("menu de pausa: %s", g_paused ? "abierto (UI oculta)" : "cerrado"); if (g_menuCheck == 0) g_menuCheck = 1; }  // v2.4: el byte cambio: el offset es valido
+    g_paused = MenuActive() || (g_userPause && *g_userPause) || (g_codePause && *g_codePause) || fe;
+    if (g_paused != wasPaused) { Log("menu de pausa: %s (byte=%d user=%d code=%d frontEnd=%d)", g_paused ? "abierto (UI oculta)" : "cerrado", MenuActive() ? 1 : 0, (g_userPause && *g_userPause) ? 1 : 0, (g_codePause && *g_codePause) ? 1 : 0, fe ? 1 : 0); if (g_menuCheck == 0) g_menuCheck = 1; }  // v2.4: el byte cambio: el offset es valido
+    // v2.6: diagnostico del menu - si los bytes del objeto cambian, registrar que offsets
+    if (g_menuManager) MenuSnapCheck();
+    // v2.6: ralentizacion estilo GTA V - al abrir la rueda el juego va lento,
+    // al cerrarla vuelve a velocidad normal (mecanismo propio del juego)
+    if (g_slowActive || g_timeScale) {
+        static bool slowOn = false;
+        if (g_open != slowOn) {
+            slowOn = g_open;
+            if (g_slowActive && g_slowScale) {
+                *g_slowActive = slowOn;
+                if (slowOn) *g_slowScale = 0.3f;
+                Log("ralentizacion: %s (slow-motion del juego)", slowOn ? "activada" : "desactivada");
+            } else if (g_timeScale) {
+                *g_timeScale = slowOn ? 0.3f : 1.0f;
+                Log("ralentizacion: %s (escala %.2f)", slowOn ? "activada" : "desactivada", *g_timeScale);
+            }
+        }
+    }
     if (!g_inited) {
         if (!FindPlayerPed || !FindPlayerPed(-1)) return;
         ImGui::CreateContext(); ImGuiIO& io = ImGui::GetIO();
@@ -985,6 +1153,15 @@ extern "C" void OnModLoad() {
         Log("  menu de pausa: FrontEndMenuManager sim=%p obj=%p m_bMenuActive(0x5C)=%d", sym, g_menuManager, ((const unsigned char*)g_menuManager)[0x5C]);
     }
     else Log("  !! FrontEndMenuManager no resolvio: la UI no se ocultara en el menu de pausa");
+    SYM(g_userPause, "_ZN6CTimer11m_UserPauseE");
+    SYM(g_codePause, "_ZN6CTimer11m_CodePauseE");
+    SYM(g_slowActive, "_ZN6CTimer17bSlowMotionActiveE");
+    SYM(g_slowScale, "_ZN6CTimer19ms_fSlowMotionScaleE");
+    SYM(g_timeScale, "_ZN6CTimer13ms_fTimeScaleE");
+    if (!g_slowActive && !g_timeScale) Log("  !! sin escala de tiempo: no habra ralentizacion al abrir la rueda");
+    void* dfe = (void*)aml->GetSym(h, "_ZN12CMenuManager12DrawFrontEndEv");
+    Log("  %s CMenuManager::DrawFrontEnd", dfe ? "ok" : "FALTA");
+    if (dfe) aml->Hook(dfe, (void*)DrawFrontEnd_hook, (void**)&DrawFrontEnd_orig);
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
     if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
