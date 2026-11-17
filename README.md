@@ -1,4 +1,4 @@
-# VHud Radio Wheel 1.9.0-beta
+# VHud Radio Wheel 2.0.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
