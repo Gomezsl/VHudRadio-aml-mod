@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.6 1.6.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.7 1.7.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -10,6 +10,15 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v1.7: CLAXON POR WIDGET - verificado desensamblando el mod de rueda de armas que
+// mando Daniel (libweapwheeldliiartworks64.so, 1.5 MB): ese mod resuelve por GetSym
+// CTouchInterface::IsTouchDown(int) y lo llama como funcion estatica con el id del
+// widget en w0 (sin 'this': en su bucle lo llama con w0 = 0..7 y tambien
+// GetTouchPosition(id) e IsReleased(id,...) igual). El claxon seria el widget 7
+// (WIDGET_HORN, segun la otra IA; se confirma con el escaneo de widgets que trae
+// esta version: registra que ids estan pulsados cuando cambia el conjunto).
+// La zona tactil/calibrada queda como respaldo. Si mueves el boton de claxon, el
+// widget 7 lo sigue detectando igual.
 // v1.6: CALIBRAR CLAXON - el volcado CPad de la v1.5 salio IDENTICO en los 120
 // volcados: el estado del claxon NO esta en los primeros 256 bytes de CPad (o no
 // esta en CPad). Mientras se sigue buscando (volcado ampliado a 2048 bytes), la
@@ -71,14 +80,14 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.6.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.7.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.6.0-beta"
+#define VHUDRADIO_VERSION "1.7.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
 static void Log(const char* fmt, ...) {
-    char buf[600]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
+    char buf[8192];  // v1.7: antes 600 y el volcado CPad de 2048 bytes se truncaba a ~295 va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
     __android_log_print(ANDROID_LOG_INFO, "VHudRadio", "%s", buf);
     if (!g_logPath.empty()) { FILE* f = fopen(g_logPath.c_str(), "a"); if (f) { fprintf(f, "%s\n", buf); fclose(f); } }
 }
@@ -103,6 +112,26 @@ typedef void (*StartRadioAudioFn)(void*, signed char, signed char);
 static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(void*, signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
+
+// ---- claxon por widget (v1.7): CTouchInterface::IsTouchDown(id), estatica ----
+// Verificado en el mod de rueda de armas: se resuelve por GetSym y se llama con
+// el id del widget en w0, sin 'this'. El claxon seria el widget 7 (a confirmar
+// con el escaneo de widgets de esta version).
+typedef bool (*IsTouchDownFn)(int);
+static IsTouchDownFn g_isTouchDown = nullptr;
+static const int kHornWidgetId = 7;  // WIDGET_HORN (por confirmar con el escaneo)
+
+// Abrir/cerrar la rueda con periodo refractario: el doble toque al claxon llega
+// por DOS caminos a la vez (widget 7 y zona tactil) y sin esto la abriria y la
+// cerraria en el mismo instante.
+static void ToggleWheel(const char* why) {
+    static auto lastToggle = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastToggle < std::chrono::milliseconds(600)) return;
+    lastToggle = now;
+    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); }
+    else { g_open = false; Log("rueda cerrada por %s", why); }
+}
 
 // ---- diagnostico CPad (v1.5): encontrar el estado del claxon en la memoria del juego ----
 typedef void* (*GetPadFn)(int);
@@ -374,10 +403,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 if (InHornRegion(io.MousePos.x, io.MousePos.y, (float)w, (float)h)) {
                     static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
-                    if (now - lastHornTap < std::chrono::milliseconds(500)) {
-                        if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
-                        else { g_open = false; Log("rueda cerrada por doble claxon"); }
-                    }
+                    if (now - lastHornTap < std::chrono::milliseconds(500)) ToggleWheel("doble claxon");
                     lastHornTap = now;
                 }
             }
@@ -404,6 +430,28 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_inVehicle && !g_open) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
+    }
+    // v1.7: sondeo de widgets - que botones del juego estan pulsados ahora mismo.
+    // Si el claxon es el widget 7, al pulsarlo se vera "widgets down: ... 7 ...".
+    if (g_isTouchDown && g_inVehicle) {
+        static uint16_t prevDown = 0;
+        static bool prevHorn7 = false;
+        static auto lastWidgetTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+        uint16_t down = 0;
+        for (int i = 0; i < 16; i++) if (g_isTouchDown(i)) down |= (uint16_t)(1u << i);
+        if (down != prevDown) {
+            char ids[64]; int n = 0;
+            for (int i = 0; i < 16; i++) if (down & (1u << i)) n += snprintf(ids + n, sizeof(ids) - n, "%d ", i);
+            Log("widgets down: [%s]%s", ids, (down & (1u << kHornWidgetId)) ? "  <- incluye 7 (claxon?)" : "");
+            prevDown = down;
+        }
+        bool horn7 = (down & (1u << kHornWidgetId)) != 0;
+        if (horn7 && !prevHorn7) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastWidgetTap < std::chrono::milliseconds(500)) ToggleWheel("doble claxon (widget 7)");
+            lastWidgetTap = now;
+        }
+        prevHorn7 = horn7;
     }
     // v1.6: diagnostico del claxon AMPLIADO - los primeros 256 bytes de CPad salieron
     // identicos en los 120 volcados de la v1.5. Ahora 2048 bytes, cada ~0.08 s, max 60.
@@ -472,6 +520,8 @@ extern "C" void OnModLoad() {
     SYM(g_audioEngine, "AudioEngine");
     SYM(g_trackManager, "AERadioTrackManager");
     SYM(g_getPad, "_ZN4CPad6GetPadEi");
+    SYM(g_isTouchDown, "_ZN15CTouchInterface11IsTouchDownEi");
+    if (!g_isTouchDown) Log("  !! IsTouchDown no resolvio: el claxon seguira solo por zona tactil/calibrada");
     #undef SYM
     Log("  globales: AudioEngine=%p AERadioTrackManager=%p", g_audioEngine, g_trackManager);
     if (!g_audioEngine || !g_trackManager) Log("  !! falta un objeto global de radio: no se llamara a ninguna funcion de radio");
