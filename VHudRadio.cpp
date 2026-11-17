@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.8.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.9.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,16 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.9: ESCANEO SEGURO (mincore) - LA v2.8 CERRO EL JUEGO
+// - La v2.8 se cerro (SIGSEGV en libVHudRadio64.so) al entrar a un auto de
+//   policia: el escaneo leyo un valor (0x23F800000) que "parecia" un puntero
+//   (cae en el rango 2^32..2^48) pero no esta mapeado, y al leerlo el juego
+//   se cerro. Ahora cada puntero se valida con mincore (IsMapped) ANTES de
+//   leerlo, y tambien la ventana que se vuelca. Rango mas amplio (0x100..
+//   0x500) y hasta 20 candidatos. Aun no bloquea nada.
+// - CEntity::GetModelIndex NO existe como simbolo en 2.10 (FALTA en las dos
+//   formas): se quito; el modelo se sabe por el orden (carro primero, bici
+//   despues) hasta encontrar la entidad de audio.
 // v2.8: BUSCAR LA ENTIDAD DE AUDIO (ESCANEO DE CVehicle) + MODELO DEL VEHICULO
 // - La v2.7 no encontro el puntero de audio en 0x138/0x140/0x148 (todo ceros
 //   en 0x120..0x15F, y un flotante pequeno en 0x120): el offset del telefono
@@ -199,9 +209,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.8.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.9.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.8.0-beta"
+#define VHUDRADIO_VERSION "2.9.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -278,7 +288,6 @@ static const char* kStationTag[14] = { "", "Hip hop clasico", "Country", "Rock c
 // ---- funciones del juego (resueltas por GetSym, nunca llamadas si faltan) ----
 static void* (*FindPlayerPed)(int);
 static void* (*FindPlayerVehicle)(int, bool);
-static int (*g_getModelIndex)(void*) = nullptr;  // v2.8: CEntity::GetModelIndex (modelo del vehiculo)
 // Las funciones de radio son metodos C++: el primer argumento es 'this', el objeto
 // global del juego (resuelto por GetSym, el Probe ya confirmo que existen).
 static void* g_audioEngine = nullptr;   // global CAudioEngine
@@ -943,6 +952,14 @@ static bool PlausiblePtr(uintptr_t v) {
     uintptr_t t = v & 0x00FFFFFFFFFFFFFFULL;
     return t > 0x100000000ULL && t < 0x1000000000000ULL;
 }
+// v2.9: true si la pagina de p esta mapeada (mincore devuelve 0); quita el
+// byte de etiqueta (0xb4...) antes de preguntar al kernel. Sin esto, leer un
+// valor que "parece" puntero pero no esta mapeado cierra el juego (v2.8).
+static bool IsMapped(const void* p) {
+    uintptr_t a = ((uintptr_t)p & 0x00FFFFFFFFFFFFFFULL) & ~0xFFFULL;
+    unsigned char vec = 0;
+    return mincore((void*)a, 0x1000, &vec) == 0;
+}
 // v2.7: vuelca n bytes en hexadecimal a un buffer (para el diagnostico)
 static void HexDump(char* out, size_t outSz, const void* p, int n) {
     const unsigned char* b = (const unsigned char*)p;
@@ -959,28 +976,28 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
     bool wasInVehicle = g_inVehicle;
     g_inVehicle = veh != nullptr;
-    // v2.8: diagnostico RadioType - la v2.7 no encontro el puntero de audio en
-    // 0x138/0x140/0x148 (todo ceros en 0x120..0x15F): el offset del telefono
-    // es otro. Ahora se escanea CVehicle (0x100..0x380) buscando punteros a
-    // objetos reales (puntero creible + vtable creible) y se vuelca la zona
-    // de ajustes de cada uno (0x70..0xAF); el que tenga el byte 0 en un carro
-    // y -1 en una bici es la entidad de audio (RadioType). Aun no bloquea nada.
+    // v2.9: diagnostico RadioType - la v2.8 SE CERRO al entrar a un auto de
+    // policia: el escaneo leyo un valor (0x23F800000) que "parecia" un puntero
+    // (cae en el rango 2^32..2^48) pero no esta mapeado, y al leerlo el juego
+    // hizo SIGSEGV. Ahora cada puntero se valida con mincore (IsMapped) ANTES
+    // de leerlo, y tambien la ventana que se vuelca. Rango mas amplio
+    // (0x100..0x500) y hasta 20 candidatos. Aun no bloquea nada.
     if (g_inVehicle && !wasInVehicle && veh) {
-        int modelo = -1;
-        if (g_getModelIndex) modelo = g_getModelIndex(veh);
-        Log("  vehiculo: %p modelo=%d estacion=%d", veh, modelo, g_current);
+        Log("  vehiculo: %p estacion=%d", veh, g_current);
         int cands = 0;
-        for (int off = 0x100; off <= 0x380 && cands < 12; off += 8) {
+        for (int off = 0x100; off <= 0x500 && cands < 20; off += 8) {
             void* cand = *(void**)((char*)veh + off);
             if (!PlausiblePtr((uintptr_t)cand)) continue;
+            if (!IsMapped(cand)) continue;  // v2.9: la pagina debe estar mapeada
             void* vt = *(void**)cand;
             if (!PlausiblePtr((uintptr_t)vt)) continue;
+            if (!IsMapped((char*)cand + 0x70) || !IsMapped((char*)cand + 0xAF)) continue;
             char hex[64*3+1];
             HexDump(hex, sizeof hex, (char*)cand + 0x70, 64);
             Log("  ptrCand(0x%X)=%p bytes[0x70..0xAF]=%s", off, cand, hex);
             cands++;
         }
-        if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x380");
+        if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x500");
     }
     // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
     // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
@@ -1206,9 +1223,6 @@ extern "C" void OnModLoad() {
     #define SYM(var, name) do { *(void**)&var = (void*)aml->GetSym(h, name); Log("  %s %s", var ? "ok    " : "FALTA " , name); } while (0)
     SYM(FindPlayerPed, "_Z13FindPlayerPedi");
     SYM(FindPlayerVehicle, "_Z17FindPlayerVehicleib");
-    // v2.8: modelo del vehiculo (para saber si es carro o bici en el log)
-    SYM(g_getModelIndex, "_ZN7CEntity13GetModelIndexEv");
-    if (!g_getModelIndex) SYM(g_getModelIndex, "_ZNK7CEntity13GetModelIndexEv");
     SYM(g_retuneAudio, "_ZN12CAudioEngine11RetuneRadioEa");
     SYM(g_retuneTrack, "_ZN20CAERadioTrackManager11RetuneRadioEa");
     SYM(g_getStationAudio, "_ZN12CAudioEngine24GetCurrentRadioStationIDEv");
