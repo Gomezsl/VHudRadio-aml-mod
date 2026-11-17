@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1 1.0.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v1.1 1.1.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee /storage/emulated/0/vhud/radio/radio_1.png ... radio_13.png
@@ -47,9 +47,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.0.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 1.1.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "1.0.0-beta"
+#define VHUDRADIO_VERSION "1.1.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -75,6 +75,14 @@ typedef void (*StartRadioAudioFn)(signed char, signed char);
 static StartRadioAudioFn g_startAudio = nullptr;
 typedef void (*StartRadioTrackFn)(signed char, signed char, float, unsigned char);
 static StartRadioTrackFn g_startTrack = nullptr;  // el que usa el mod GTA6Radio 4.0 en 2.10 (verificado por Probe: ok)
+
+// ---- claxon (v1.1): doble toque al boton de claxon del juego abre/cierra la rueda ----
+// CPad::GetPad(0) = pad del jugador; CPad::GetHorn() = true mientras suena el claxon.
+// Se sondea cada frame en DrawFrame; si GetHorn no resuelve, solo queda el boton flotante.
+typedef void* (*GetPadFn)(int);
+static GetPadFn g_getPad = nullptr;
+typedef bool (*GetHornFn)(void*);
+static GetHornFn g_getHorn = nullptr;
 
 static std::string g_vhudDir;   // /storage/emulated/0/vhud
 static int g_current = 1;       // estacion actual conocida (1..13)
@@ -193,7 +201,7 @@ static bool PatchGot(const char* libName, const char* sym, void* repl, void** or
 
 static void DrawWheel(float W, float H) {
     // boton flotante (abajo a la derecha, encima de los controles del juego)
-    float bs = H * 0.085f;
+    float bs = H * 0.06f;  // v1.1: boton mas chico
     ImVec2 bp(W - bs * 1.15f, H * 0.62f);
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     if (g_tex[g_current]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[g_current], bp, ImVec2(bp.x + bs, bp.y + bs));
@@ -203,7 +211,7 @@ static void DrawWheel(float W, float H) {
     if (!g_open) return;
     // rueda: 13 segmentos alrededor del centro de la pantalla
     ImVec2 c(W * 0.5f, H * 0.5f);
-    float R = H * 0.36f, rIn = R * 0.55f;
+    float R = H * 0.30f, rIn = R * 0.55f;  // v1.1: rueda mas chica
     dl->AddCircleFilled(c, R, IM_COL32(10,10,16,200));
     dl->AddCircle(c, R, IM_COL32(255,255,255,180), 0, 3.0f);
     for (int i = 1; i <= 13; i++) {
@@ -211,7 +219,7 @@ static void DrawWheel(float W, float H) {
         float a1 = a0 + 2*3.14159265f/13.0f;
         float am = (a0 + a1) * 0.5f;
         ImVec2 p(c.x + cosf(am) * (rIn + R) * 0.5f, c.y + sinf(am) * (rIn + R) * 0.5f);
-        float s = R * 0.30f;
+        float s = R * 0.20f;  // v1.1: iconos mas chicos (~110px a 1080p)
         if (i == g_selected) { // segmento seleccionado: marco + fondo claro
             dl->AddCircleFilled(c, R, IM_COL32(120,80,200,60));
             if (g_tex[0]) dl->AddImage((ImTextureID)(uintptr_t)g_tex[0], ImVec2(p.x-s, p.y-s), ImVec2(p.x+s, p.y+s));
@@ -244,6 +252,22 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         g_inited = true; LoadRadioTextures(); RefreshCurrent();
         Log("ImGui listo (%.0fx%.0f), estacion actual: %d (%s)", (float)w, (float)h, g_current, kStationName[g_current]);
     }
+    // doble toque al claxon: abre/cierra la rueda (solo dentro del vehiculo)
+    if (g_getPad && g_getHorn && g_inVehicle) {
+        static bool prevHorn = false;
+        static auto lastTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
+        void* pad = g_getPad(0);
+        bool horn = pad ? g_getHorn(pad) : false;
+        if (horn && !prevHorn) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastTap < std::chrono::milliseconds(500)) {
+                if (!g_open) { g_open = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por doble claxon (estacion actual %d %s)", g_current, kStationName[g_current]); }
+                else { g_open = false; Log("rueda cerrada por doble claxon"); }
+            }
+            lastTap = now;
+        }
+        prevHorn = horn;
+    }
     ImGuiIO& io = ImGui::GetIO();
     static auto last = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -267,7 +291,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             }
         } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
             if (!g_open && g_inVehicle) {
-                float bs = (float)h * 0.085f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
+                float bs = (float)h * 0.06f; ImVec2 bp((float)w - bs*1.15f, (float)h*0.62f);
                 // el toque que abre se detecta por la posicion del ultimo evento 0 (io.MousePos)
                 if (io.MousePos.x >= bp.x && io.MousePos.x <= bp.x+bs && io.MousePos.y >= bp.y && io.MousePos.y <= bp.y+bs) {
                     g_open = true; g_selected = g_current; RefreshCurrent(); g_selected = g_current;
@@ -317,7 +341,10 @@ extern "C" void OnModLoad() {
     SYM(g_getStationTrack, "_ZN20CAERadioTrackManager24GetCurrentRadioStationIDEv");
     SYM(g_startAudio, "_ZN12CAudioEngine10StartRadioEaa");
     SYM(g_startTrack, "_ZN20CAERadioTrackManager10StartRadioEaafh");
+    SYM(g_getPad, "_ZN4CPad6GetPadEi");
+    SYM(g_getHorn, "_ZN4CPad7GetHornEv");
     #undef SYM
+    if (!g_getPad || !g_getHorn) Log("  !! doble claxon no disponible (CPad::GetPad/GetHorn FALTA): solo boton flotante");
     if (!g_retuneAudio && !g_retuneTrack && !g_startAudio && !g_startTrack)
         Log("!! ningun Retune/Start resolvio: la rueda se dibujara pero no cambiara la radio. Ver VHudRadioProbe.txt");
 
