@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.17.0-beta
+# VHud Radio Wheel 2.18.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -25,11 +25,11 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   `Android/data/com.rockstargames.gtasa/files/VHudRadio/VHudRadio.ini`.
   Si existe un .ini viejo en `data/configs/` o en `files/configs/`, se muda solo.
 - El panel se puede MOVER (arrastrando desde el título, como el menú de ARCX)
-  y cambiar de ANCHO (desde la esquina inferior derecha, con tres rayas en
-  diagonal, como en ARCX). La posición y el ancho se guardan en el .ini
-  (`panelX`/`panelY`/`panelAncho`); el alto se ajusta solo al contenido.
-  El botón flotante también detecta mejor el doble toque: el soltar siempre
-  llega, la ventana es de 600 ms y el temblor del dedo ya no lo mueve.
+  y cambiar de TAMAÑO en ancho y en alto (desde la esquina inferior derecha,
+  con tres rayas en diagonal, como en ARCX; la esquina no se pierde aunque el
+  contenido sea más alto que el panel). La posición y el tamaño se guardan en
+  el .ini (`panelX`/`panelY`/`panelAncho`/`panelAlto`; el alto vuelve a
+  automático con "Restablecer todo").
 - Idiomas: español, inglés, indonesio, portugués (Brasil), francés y alemán.
   Todo el panel y los géneros se traducen (los nombres de las estaciones no,
   son nombres propios). Se elige en el panel y se guarda como `idioma=es`
