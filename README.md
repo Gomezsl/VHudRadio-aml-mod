@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.27.0-beta
+# VHud Radio Wheel 2.28.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -6,6 +6,13 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 - Lee los iconos de `Android/data/com.rockstargames.gtasa/files/VHudRadio/radio/radio_1.png` ...
   `radio_13.png` (+ `radio_current.png`), sin importarlos ni incrustarlos. Si no están
   ahí, los busca en `files/vhud/radio/` y luego en `/storage/emulated/0/vhud/radio/`.
+- Dos juegos de iconos de las emisoras (normales y a color), sin reemplazar
+  archivos: los normales (blancos) viven en `VHudRadio/radio/` y los de color
+  en `VHudRadio/radio_color/` (mismos nombres de archivo, mismos respaldos
+  de carpeta). En el panel hay un INTERRUPTOR "Iconos de las emisoras a
+  color": encendido se ven los de color (en la rueda y en el botón flotante),
+  apagado se ven los normales. Se guarda como `iconosColor=0/1` en el .ini.
+  Si a un icono a color le falta, se usa el normal de esa emisora.
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
 - Botón flotante con etiqueta (nombre + género de la estación):
@@ -115,4 +122,7 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   [V-HUD](https://github.com/gennariarmando/v-hud), de Armando Gennari (_AG),
   bajo licencia MIT. El archivo LICENSE original de V-HUD va incluido en el
   paquete que se comparte, con su línea de Copyright intacta.
+- El juego de iconos a color (`VHudRadio/radio_color/`) es opcional y no va
+  incluido en el paquete que se comparte; cada quien pone ahí sus propios
+  iconos a color (radio_1.png ... radio_13.png + radio_current.png).
 - Los logos de las emisoras son de Rockstar Games (GTA San Andreas).
