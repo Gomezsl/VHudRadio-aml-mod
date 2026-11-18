@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.31.0-beta
+# VHud Radio Wheel 2.32.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -31,6 +31,13 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   al coche. La rueda se sigue abriendo con doble toque al claxon aunque el
   botón esté oculto. La v2.31 añade que tocar el centro de la rueda abre el
   panel, para que ocultar el botón nunca te deje sin ajustes.
+- v2.32: al cambiar de estación se restaura la escala de tiempo a 1.00
+  ANTES de llamar StartRadio. El mod de User Tracks (SAUserTracks) arranca
+  su reproductor con StartRadio; si lo hacía con la cámara lenta puesta
+  (0.30), su decodificador MP3 arrancaba a ritmo lento y la canción se
+  escuchaba trabada aunque la rueda ya se hubiera cerrado. La cámara lenta
+  sigue al abrir y al recorrer la rueda, solo se quita al elegir estación
+  (que es cuando la rueda se cierra de todos modos).
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
   Tocar el CENTRO de la rueda (el nombre de la estación) y soltar abre el
