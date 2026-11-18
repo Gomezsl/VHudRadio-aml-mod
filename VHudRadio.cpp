@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.44.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.45.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.44.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.45.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.44.0-beta"
+#define VHUDRADIO_VERSION "2.45.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -933,17 +933,15 @@ static GLuint LoadPngToGl(const std::string& path, int maxDim = 128) {
     return LoadPngFromMemory(buf.data(), buf.size(), maxDim);
 }
 // v2.29: un icono: primero la carpeta (si el usuario puso su propio PNG, manda),
-// si no esta, el PNG incrustado en el .so. srcOut dice de donde salio.
+// v2.45 PRUEBA: SOLO desde archivo, sin respaldo incrustado en el .so.
+// Daniel sospecha que el incrustado (base64 + stb_image) es lo que traba
+// la musica. Los 14 PNG blancos van en VHudRadio/radio/ (ZIP aparte).
+// Si el archivo falta, el icono queda vacio y el log lo dice.
 static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, const char** srcOut, int maxDim = 128) {
+    (void)set; (void)idx;
     GLuint t = LoadPngToGl(path, maxDim);
     if (t) { if (srcOut) *srcOut = "archivo"; return t; }
-    const char* b64 = EmbeddedIconB64(set, idx);
-    if (b64) {
-        std::vector<unsigned char> raw = B64Decode(b64);
-        if (!raw.empty()) t = LoadPngFromMemory(raw.data(), raw.size(), maxDim);
-    }
-    if (t) { if (srcOut) *srcOut = "en el .so"; return t; }
-    if (srcOut) *srcOut = "-";
+    if (srcOut) *srcOut = "falta";
     return 0;
 }
 // v2.28: carga un juego de iconos (normales de radio/ o a color de radio_color/)
@@ -954,7 +952,7 @@ static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, i
     std::string dir = g_gameFilesDir + "/VHudRadio/" + subdir;
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_gameFilesDir + "/vhud/" + subdir; }
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/" + subdir; }
-    Log("carpeta de iconos %s: %s/ (si falta, va el incrustado en el .so)", etiqueta, dir.c_str());
+    Log("carpeta de iconos %s: %s/ (v2.45: solo archivos, sin incrustados)", etiqueta, dir.c_str());
     int ok = 0;
     for (int i = 1; i <= 13; i++) {
         const char* src = "-";
