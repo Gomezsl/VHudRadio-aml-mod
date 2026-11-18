@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.26.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.27.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,13 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.27: YA NO SE CREAN LAS CARPETAS vhud VIEJAS
+// - Al arrancar, el plugin creaba tambien las carpetas viejas vhud/
+//   (/storage/emulated/0/vhud/ y files/vhud/), un resto de cuando ahi
+//   vivian los iconos y horn_pos.txt. Ya no se guarda nada ahi, asi que
+//   solo se crea VHudRadio/ (y VHudRadio/radio/). Las carpetas viejas se
+//   siguen LEYENDO como respaldo si existen (iconos y horn_pos.txt), pero
+//   ya no se crean vacias.
 // v2.26: LOG JUNTO AL .INI + CREDITO EN LOS 6 IDIOMAS
 // - El log (VHudRadioLog.txt) se creaba en files/ (junto al juego) y el
 //   .ini vive en files/VHudRadio/. Ahora el log tambien se crea en
@@ -459,9 +466,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.26.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.27.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.26.0-beta"
+#define VHUDRADIO_VERSION "2.27.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -1989,9 +1996,8 @@ extern "C" void OnModLoad() {
     mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);  // v2.26: la carpeta debe existir antes de crear el log dentro de ella
     g_logPath = files + "/VHudRadio/VHudRadioLog.txt";  // v2.26: el log vive junto al .ini, en VHudRadio/
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
-    g_vhudDir = "/storage/emulated/0/vhud";
-    mkdir(g_vhudDir.c_str(), 0777); mkdir((g_vhudDir + "/radio").c_str(), 0777);
-    mkdir((g_gameFilesDir + "/vhud").c_str(), 0777); mkdir((g_gameFilesDir + "/vhud/radio").c_str(), 0777);
+    g_vhudDir = "/storage/emulated/0/vhud";  // v2.27: solo se LEE como respaldo (iconos y horn_pos.txt); ya no se crea la carpeta
+    // v2.27: las carpetas viejas vhud/ ya no se crean (solo VHudRadio/); si alguien aun tiene iconos ahi, se siguen leyendo
     mkdir((g_gameFilesDir + "/VHudRadio/radio").c_str(), 0777);  // (la carpeta VHudRadio ya se creo antes del log)
     LoadCfg();
     LoadHornPos();

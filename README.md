@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.26.0-beta
+# VHud Radio Wheel 2.27.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -58,6 +58,10 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 - El crédito "rueda de radio GTAV de Hunter09" cambia con el idioma elegido
   (español, inglés, indonesio, portugués, francés, alemán), como el resto
   del panel.
+- Ya no se crean las carpetas viejas vhud/ al arrancar el juego (solo se
+  crea VHudRadio/). Las carpetas viejas se siguen leyendo como respaldo si
+  existen (por si alguien aún tiene ahí los iconos), pero ya no se crean
+  vacías.
 - El panel se puede MOVER (arrastrando desde la cabecera, como el menú de ARCX)
   y cambiar de TAMAÑO en ancho y en alto (desde la esquina inferior derecha,
   con tres rayas en diagonal, como en ARCX; la esquina no se pierde aunque el
