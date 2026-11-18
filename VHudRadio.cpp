@@ -1144,6 +1144,31 @@ static bool GLBtnInit() {
     Log("boton GL listo (programa %u)", (unsigned)g_glBtnProg);
     return true;
 }
+// Decodifica un caracter UTF-8. Devuelve los bytes consumidos (1-4), 0 si es invalido.
+// (ImTextCharFromUtf8 es interna de ImGui y no esta en imgui.h de la v1.89.7.)
+static int GLBtnUtf8(unsigned int* out, const char* p) {
+    unsigned char c = (unsigned char)*p;
+    if (c < 0x80) { *out = c; return 1; }
+    if ((c & 0xE0) == 0xC0) {
+        unsigned char c1 = (unsigned char)p[1];
+        if ((c1 & 0xC0) != 0x80) return 0;
+        *out = ((c & 0x1F) << 6) | (c1 & 0x3F);
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        unsigned char c1 = (unsigned char)p[1], c2 = (unsigned char)p[2];
+        if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) return 0;
+        *out = ((c & 0x0F) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        unsigned char c1 = (unsigned char)p[1], c2 = (unsigned char)p[2], c3 = (unsigned char)p[3];
+        if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return 0;
+        *out = ((c & 0x07) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+        return 4;
+    }
+    return 0;
+}
 // Dibuja el boton flotante con OpenGL directo. Devuelve false si no se pudo
 // (entonces el llamador usa ImGui como antes). W/H en pixeles.
 static bool DrawButtonGL(float W, float H) {
@@ -1176,7 +1201,7 @@ static bool DrawButtonGL(float W, float H) {
         const char* p = str;
         while (*p) {
             unsigned int cp = 0;
-            int n = ImTextCharFromUtf8(&cp, p, nullptr);
+            int n = GLBtnUtf8(&cp, p);
             if (n <= 0) break;
             p += n;
             const ImFontGlyph* gl = font->FindGlyph((ImWchar)cp);
