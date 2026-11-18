@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.21.0-beta
+# VHud Radio Wheel 2.22.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -24,7 +24,13 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   posición, vista previa (solo se ve) y restablecer todo. Se guarda en
   `Android/data/com.rockstargames.gtasa/files/VHudRadio/VHudRadio.ini`.
   Si existe un .ini viejo en `data/configs/` o en `files/configs/`, se muda solo.
-- El panel se puede MOVER (arrastrando desde el título, como el menú de ARCX)
+- La cabecera del panel ("Personalizar rueda de radio" + subtítulo) es FIJA
+  (como la del menú de ARCX): no se desplaza con el contenido, que se desliza
+  por debajo. Para cerrar ya no hay que bajar hasta "Cerrar": hay una X arriba
+  a la derecha (círculo oscuro con anillo azul y X blanca, como en ARCX).
+  Los botones ya no son simples rectángulos de ImGui: tienen esquinas
+  redondeadas, brillo superior y borde claro, como las filas de ARCX.
+- El panel se puede MOVER (arrastrando desde la cabecera, como el menú de ARCX)
   y cambiar de TAMAÑO en ancho y en alto (desde la esquina inferior derecha,
   con tres rayas en diagonal, como en ARCX; la esquina no se pierde aunque el
   contenido sea más alto que el panel). La posición y el tamaño se guardan en
