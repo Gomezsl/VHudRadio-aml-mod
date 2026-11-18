@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.23.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.24.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,18 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.24: DESPLAZAR CON EL SELECTOR ABIERTO + BARRA DE TONO QUE NO SE REGRESA
+// - La v2.20-v2.23 no permitia desplazar el panel con el selector de color
+//   abierto (para no robarle sus arrastres verticales), asi que con el
+//   selector abierto no se llegaba a los ajustes de abajo. Ahora se puede
+//   desplazar salvo si el arrastre empieza SOBRE el cuadro de saturacion/
+//   valor o la barra de tono (esos arrastres son del color, como antes).
+// - La barra de tono se regresaba sola: con un color gris/blanco (S=0, como
+//   el texto blanco por defecto) el tono no se ve, y al soltar, la
+//   sincronizacion RGB->HSV borraba el tono elegido (un gris no tiene tono y
+//   volvia a 0/rojo). Ahora la sincronizacion no borra el tono si el color
+//   es gris, y al mover la barra de tono con S casi 0 se pone saturado para
+//   que el color cambie de verdad.
 // v2.23: CABECERA CON FONDO OPACO + X ACOMODADA + INTERRUPTOR + REDISENO
 // - La v2.22 dibujaba la cabecera fija en primer plano pero SIN fondo: al
 //   bajar, el contenido se veia por detras del titulo (se veian las funciones
@@ -428,9 +440,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.23.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.24.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.23.0-beta"
+#define VHUDRADIO_VERSION "2.24.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -1067,8 +1079,16 @@ static void PickerSyncFromRGB() {
     if (g_pickTarget == 1) { r = g_cfg.textoR; g = g_cfg.textoG; b = g_cfg.textoB; }
     else if (g_pickTarget == 2) { r = g_cfg.fondoR; g = g_cfg.fondoG; b = g_cfg.fondoB; }  // v2.17: color del fondo
     else { r = g_cfg.ringR; g = g_cfg.ringG; b = g_cfg.ringB; }
-    ImGui::ColorConvertRGBtoHSV(r / 255.0f, g / 255.0f, b / 255.0f, g_pickH, g_pickS, g_pickV);
+    float h, s, v;
+    ImGui::ColorConvertRGBtoHSV(r / 255.0f, g / 255.0f, b / 255.0f, h, s, v);
+    // v2.24: un color gris/blanco no tiene tono (S~0); no se borra el tono
+    // elegido por el usuario (si no, la barra de tono volvia sola a rojo)
+    if (s > 0.02f) g_pickH = h;
+    g_pickS = s; g_pickV = v;
 }
+// v2.24: rect del selector (cuadro SV + barra de tono) del frame anterior;
+// el desplazamiento lo usa para no robar los arrastres del color
+static ImVec2 g_pickRect0, g_pickRect1;
 static void PickerApplyToRGB() {
     float r, g, b;
     ImGui::ColorConvertHSVtoRGB(g_pickH, g_pickS, g_pickV, r, g, b);
@@ -1324,19 +1344,21 @@ static void DrawSettings(float W, float H) {
     // v2.20 no comprobaba donde empezaba el arrastre y un arrastre vertical
     // en el juego (fuera del panel) tambien desplazaba el panel. La
     // direccion sigue como en la v2.20: vertical = desplaza, horizontal =
-    // deslizador. Con el selector de color abierto no hay desplazamiento por
-    // direccion (sus arrastres son en vertical y son del color). Tampoco si
-    // el arrastre es la cabecera (que mueve el panel), la X o la esquina
-    // (que lo redimensiona).
+    // deslizador. Con el selector de color abierto SI hay desplazamiento,
+    // salvo si el arrastre empieza sobre el cuadro o la barra de tono (esos
+    // arrastres son del color). Tampoco si el arrastre es la cabecera (que
+    // mueve el panel), la X o la esquina (que lo redimensiona).
     static bool panelScrolling = false; static bool scrollDecided = false; static ImVec2 scrollStart;
-    static bool scrollStartInPanel = false; static float scrollStartY = 0.0f; static float scrollVel = 0.0f;
+    static bool scrollStartInPanel = false; static bool scrollStartOnPicker = false; static float scrollStartY = 0.0f; static float scrollVel = 0.0f;
     if (io.MouseClicked[0]) {
         scrollStart = io.MousePos; scrollDecided = false; panelScrolling = false; g_panelScrolling = false; scrollVel = 0.0f;
         scrollStartY = ImGui::GetScrollY();
         ImVec2 wp0 = ImGui::GetWindowPos(); ImVec2 ws0 = ImGui::GetWindowSize();
         scrollStartInPanel = io.MousePos.x >= wp0.x && io.MousePos.x <= wp0.x + ws0.x && io.MousePos.y >= wp0.y && io.MousePos.y <= wp0.y + ws0.y;
+        // v2.24: el arrastre empezo sobre el selector de color (cuadro o barra)
+        scrollStartOnPicker = g_pickTarget >= 0 && io.MousePos.x >= g_pickRect0.x && io.MousePos.x <= g_pickRect1.x && io.MousePos.y >= g_pickRect0.y && io.MousePos.y <= g_pickRect1.y;
     }
-    if (io.MouseDown[0] && !scrollDecided && !panelMoving && !xPressed && !panelResizing && g_pickTarget < 0) {
+    if (io.MouseDown[0] && !scrollDecided && !panelMoving && !xPressed && !panelResizing && !scrollStartOnPicker) {
         if (!scrollStartInPanel) { scrollDecided = true; }  // el arrastre empezo fuera del panel: nunca desplaza
         else {
             float dx = io.MousePos.x - scrollStart.x, dy = io.MousePos.y - scrollStart.y;
@@ -1397,6 +1419,7 @@ static void DrawSettings(float W, float H) {
         bool svActive = ImGui::IsItemActive();
         ImGui::SameLine(0, gap);
         ImVec2 hue0 = ImGui::GetCursorScreenPos();
+        g_pickRect0 = sq0; g_pickRect1 = ImVec2(hue0.x + hueW, hue0.y + sq);  // v2.24: rect del selector para el desplazamiento
         ImGui::InvisibleButton("##hue", ImVec2(hueW, sq));
         bool hueActive = ImGui::IsItemActive();
         bool dragging = (svActive || hueActive) && io.MouseDown[0];
@@ -1407,6 +1430,9 @@ static void DrawSettings(float W, float H) {
             PickerApplyToRGB(); g_cfgDirty = true;
         } else if (hueActive && io.MouseDown[0]) {
             g_pickH = Clampf((io.MousePos.y - hue0.y) / sq, 0.0f, 1.0f);
+            // v2.24: con un color gris/blanco el tono no se ve (S=0); al
+            // mover la barra se pone saturado para que el color cambie
+            if (g_pickS < 0.05f) g_pickS = 1.0f;
             PickerApplyToRGB(); g_cfgDirty = true;
         }
         float hr, hg, hb;
