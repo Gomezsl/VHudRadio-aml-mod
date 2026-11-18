@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.36.0-beta
+# VHud Radio Wheel 2.37.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -61,6 +61,11 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   viejo de files/VHudRadio se migra solo a la ruta nueva. También se
   ignora el rebote del táctil (<80 ms) en el doble toque del claxon para
   que la rueda no se abra sola.
+- v2.37: se desactivan los clics. VHudRadio creaba un segundo motor
+  OpenSL ES para los clics y ese motor peleaba con el motor OpenSL ES de
+  SAUserTracks (la música de User Tracks): la música se escuchaba trabada
+  y a veces el juego se cerraba. ARCX no crea motor de audio y por eso
+  con ARCX la música suena bien. Sin clics no hay segundo motor.
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
   Tocar el CENTRO de la rueda (el nombre de la estación) y soltar abre el

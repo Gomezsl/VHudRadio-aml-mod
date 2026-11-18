@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.36.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.37.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.36.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.37.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.36.0-beta"
+#define VHUDRADIO_VERSION "2.37.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -540,10 +540,13 @@ static void SoundInit() {
     Log("  sonido: OpenSL ES listo");
 }
 static void PlayClick(bool hi) {
-    SoundInit();
-    if (!g_soundOk || !g_slQueue) return;
-    (*g_slQueue)->Clear(g_slQueue);
-    (*g_slQueue)->Enqueue(g_slQueue, hi ? g_clickHi : g_clickLo, 1600 * 2);
+    // v2.37: clic desactivado. VHudRadio creaba un segundo motor OpenSL ES
+    // (slCreateEngine por dlopen) para los clics, y ese motor pelea con el
+    // motor OpenSL ES de SAUserTracks (musica de User Tracks): la musica se
+    // escucha trabada y a veces el juego se cierra. ARCX no crea motor de
+    // audio y por eso con ARCX + SAUserTracks suena bien. Sin clics no hay
+    // segundo motor y no hay pelea. (SoundInit queda sin usar por ahora.)
+    (void)hi; (void)SoundInit;
 }
 
 // ---- estaciones 1..13 (VERIFIED por plugin-sdk eRadioID + GTAMods + v-hud) ----
