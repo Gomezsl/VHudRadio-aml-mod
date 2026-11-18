@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.34.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.35.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.34.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.35.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.34.0-beta"
+#define VHUDRADIO_VERSION "2.35.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -880,14 +880,44 @@ static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
     int w = 0, h = 0, ch = 0;
     unsigned char* px = stbi_load_from_memory(buf, (int)len, &w, &h, &ch, 4);
     if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return 0; }
+    // v2.35: los iconos a color son de 256x256 y se dibujan a ~94 px sin
+    // mipmaps; achicarlos a 128x128 (como los normales) antes de subirlos.
+    unsigned char* pxSmall = nullptr;
+    unsigned char* upPx = px;
+    int upW = w, upH = h;
+    if (w > 128 || h > 128) {
+        int nw = w > 128 ? 128 : w, nh = h > 128 ? 128 : h;
+        pxSmall = (unsigned char*)malloc((size_t)nw * nh * 4);
+        if (pxSmall) {
+            for (int y = 0; y < nh; y++) {
+                for (int x = 0; x < nw; x++) {
+                    int sx = x * w / nw, sy = y * h / nh;
+                    int ex = (x + 1) * w / nw, ey = (y + 1) * h / nh;
+                    if (ex <= sx) ex = sx + 1; if (ey <= sy) ey = sy + 1;
+                    for (int c = 0; c < 4; c++) {
+                        int sum = 0, cnt = 0;
+                        for (int yy = sy; yy < ey && yy < h; yy++)
+                            for (int xx = sx; xx < ex && xx < w; xx++) { sum += px[(yy * w + xx) * 4 + c]; cnt++; }
+                        pxSmall[(y * nw + x) * 4 + c] = (unsigned char)(cnt ? sum / cnt : 0);
+                    }
+                }
+            }
+            upPx = pxSmall; upW = nw; upH = nh;
+        }
+    }
     GLint last = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &last);
     GLuint tex = 0; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // Mipmaps solo si el tamano es potencia de 2 (en ES 2.0 no hay mipmaps
+    // para tamanos no potencia de 2; en ES 3.x si, pero asi no se rompe nada).
+    bool pot = (upW & (upW - 1)) == 0 && (upH & (upH - 1)) == 0;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, pot ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, upW, upH, 0, GL_RGBA, GL_UNSIGNED_BYTE, upPx);
+    if (pot) glGenerateMipmap(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, (GLuint)last);
+    if (pxSmall) free(pxSmall);
     stbi_image_free(px);
     return glGetError() == GL_NO_ERROR ? tex : 0;
 }

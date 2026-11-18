@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.34.0-beta
+# VHud Radio Wheel 2.35.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -51,6 +51,10 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   usaba nuestro VBO y se veía negro. Ahora el botón usa su propio VAO,
   que se guarda y se restaura en cada cuadro, y también se guarda y se
   restaura el framebuffer.
+- v2.35: los iconos a color (256x256) se achican a 128x128 al cargarlos
+  (como los iconos normales) y se generan mipmaps para que el achicado
+  al dibujar sea barato. En la 2.27 y 2.28 la música andaba bien y algo
+  cambió con los iconos a color o con las imágenes dentro del .so.
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
   Tocar el CENTRO de la rueda (el nombre de la estación) y soltar abre el
