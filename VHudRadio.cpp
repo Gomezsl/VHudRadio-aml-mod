@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.45.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.46.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.45.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.46.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.45.0-beta"
+#define VHUDRADIO_VERSION "2.46.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -998,6 +998,11 @@ static void ApplyStation(int id) {
     // asi que el efecto visual no cambia.
     if (g_timeScale) *g_timeScale = 1.0f;
     if (g_slowActive) *g_slowActive = false;
+    // v2.46 (Google AI Mode): restaurar TAMBIEN ms_fSlowMotionScale.
+    // La v2.32 solo restauraba dos de las tres; con g_slowScale en 0.30
+    // SAUserTracks puede arrancar su MP3 a ritmo lento al interceptar
+    // StartRadio(12).
+    if (g_slowScale) *g_slowScale = 1.0f;
     // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
     // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
     if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
@@ -2299,7 +2304,10 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // v1.4: el juego actualiza la estacion leida con un poco de retraso tras StartRadio
     // (en el log v1.3 la lectura iba una estacion atrasada); re-leer cada ~0.5 s para
     // que el icono del boton flotante no se quede en la estacion anterior.
-    if (g_inVehicle && !g_open) {
+    // v2.46 (Google AI Mode): no consultar el motor nativo cuando suena
+    // User Tracks (12): en Android devuelve 13 (Radio Off) y desincroniza
+    // a SAUserTracks (ademas ponia g_current=13 cada 0.5 s).
+    if (g_inVehicle && !g_open && g_current != 12) {
         static int frameN = 0;
         if (++frameN % 30 == 0) RefreshCurrent();
     }
