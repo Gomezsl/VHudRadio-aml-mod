@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.22.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.23.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,20 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.23: CABECERA CON FONDO OPACO + X ACOMODADA + INTERRUPTOR + REDISENO
+// - La v2.22 dibujaba la cabecera fija en primer plano pero SIN fondo: al
+//   bajar, el contenido se veia por detras del titulo (se veian las funciones
+//   en la parte que no se desplaza). Ahora la cabecera lleva un fondo opaco
+//   (el mismo azul del panel, con las esquinas de arriba redondeadas) que
+//   tapa el contenido que pasa por debajo.
+// - La X era muy grande y colgaba por debajo de la linea del titulo; ahora
+//   es mas chica y esta centrada en la linea del titulo.
+// - "Bloquear posicion del boton" ya no es un boton con ON/OFF: es un
+//   INTERRUPTOR (pastilla azul con circulo, como los de ARCX).
+// - Se quita el boton "Cerrar" de abajo (ya esta la X arriba).
+// - Rediseno como la imagen de referencia: iconos a la izquierda de cada
+//   ajuste (sol, expandir, globo, opacidad), el valor en una pastilla a la
+//   derecha, y los botones en rejilla de 2 columnas con icono.
 // v2.22: CABECERA FIJA ESTILO ARCX (X PARA CERRAR) + BOTONES REDISENADOS
 // - La cabecera ("Personalizar rueda de radio" + subtitulo) ya no se desplaza
 //   con el contenido: se dibuja en primer plano (como la cabecera del menu de
@@ -414,9 +428,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.22.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.23.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.22.0-beta"
+#define VHUDRADIO_VERSION "2.23.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -1066,14 +1080,76 @@ static void PickerApplyToRGB() {
 // ---- controles propios del panel (no los de ImGui por defecto) ----------------
 // Deslizador propio: etiqueta a la izquierda, valor a la derecha, pista
 // redondeada con relleno azul y tirador blanco. Se arrastra con el dedo.
-static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const char* fmt, float H) {
+// v2.23: iconos de la imagen de referencia (sol, expandir, globo, opacidad,
+// candado, restablecer, ojo) - se dibujan con primitivas de ImGui
+enum PanelIcon { IC_NONE = 0, IC_SUN, IC_SIZE, IC_GLOBE, IC_OPAC, IC_LOCK, IC_RESET, IC_EYE };
+static void DrawPanelIcon(ImDrawList* dl, float cx, float cy, float r, int kind, ImU32 col, float H) {
+    float th = H * 0.002f;  // grosor de las lineas
+    switch (kind) {
+    case IC_SUN: {  // sol: circulo + 8 rayos
+        dl->AddCircle(ImVec2(cx, cy), r * 0.45f, col, 16, th);
+        for (int k = 0; k < 8; k++) {
+            float a = (float)k * 3.14159f / 4.0f;
+            dl->AddLine(ImVec2(cx + cosf(a) * r * 0.62f, cy + sinf(a) * r * 0.62f), ImVec2(cx + cosf(a) * r, cy + sinf(a) * r), col, th);
+        }
+        break; }
+    case IC_SIZE: {  // expandir: flecha doble en diagonal (arriba-derecha y abajo-izquierda)
+        float o = r * 0.55f, a = r * 0.35f;
+        dl->AddLine(ImVec2(cx - o, cy + o), ImVec2(cx + o, cy - o), col, th);
+        dl->AddLine(ImVec2(cx + o, cy - o), ImVec2(cx + o - a, cy - o), col, th);
+        dl->AddLine(ImVec2(cx + o, cy - o), ImVec2(cx + o, cy - o + a), col, th);
+        dl->AddLine(ImVec2(cx - o, cy + o), ImVec2(cx - o + a, cy + o), col, th);
+        dl->AddLine(ImVec2(cx - o, cy + o), ImVec2(cx - o, cy + o - a), col, th);
+        break; }
+    case IC_GLOBE: {  // globo: circulo + meridiano + ecuador
+        dl->AddCircle(ImVec2(cx, cy), r * 0.8f, col, 24, th);
+        dl->AddLine(ImVec2(cx, cy - r * 0.8f), ImVec2(cx, cy + r * 0.8f), col, th);
+        dl->AddLine(ImVec2(cx - r * 0.8f, cy), ImVec2(cx + r * 0.8f, cy), col, th);
+        break; }
+    case IC_OPAC: {  // opacidad: cuadro 2x2 (dos cuadros llenos en diagonal)
+        float s = r * 0.7f;
+        dl->AddRectFilled(ImVec2(cx - s, cy - s), ImVec2(cx, cy), col, 0.0f);
+        dl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + s, cy + s), col, 0.0f);
+        dl->AddRect(ImVec2(cx - s, cy - s), ImVec2(cx + s, cy + s), col, 0.0f, 0, th);
+        break; }
+    case IC_LOCK: {  // candado: arco + cuerpo
+        dl->PathArcTo(ImVec2(cx, cy - r * 0.05f), r * 0.40f, 3.14159f, 6.28318f);
+        dl->PathStroke(col, 0, th);
+        dl->AddRectFilled(ImVec2(cx - r * 0.55f, cy - r * 0.05f), ImVec2(cx + r * 0.55f, cy + r * 0.70f), col, r * 0.15f);
+        break; }
+    case IC_RESET: {  // restablecer: arco casi completo + punta de flecha
+        float r0 = r * 0.70f, a0 = 0.6f, a1 = 5.6f;
+        dl->PathArcTo(ImVec2(cx, cy), r0, a0, a1);
+        dl->PathStroke(col, 0, th);
+        float ex = cx + cosf(a1) * r0, ey = cy + sinf(a1) * r0;
+        float tx = -sinf(a1), ty = cosf(a1), ah = r * 0.40f;
+        dl->AddLine(ImVec2(ex, ey), ImVec2(ex - tx * ah + ty * ah * 0.5f, ey - ty * ah - tx * ah * 0.5f), col, th);
+        dl->AddLine(ImVec2(ex, ey), ImVec2(ex - tx * ah - ty * ah * 0.5f, ey - ty * ah + tx * ah * 0.5f), col, th);
+        break; }
+    case IC_EYE: {  // ojo: circulo + pupila
+        dl->AddCircle(ImVec2(cx, cy), r * 0.70f, col, 24, th);
+        dl->AddCircleFilled(ImVec2(cx, cy), r * 0.30f, col, 16);
+        break; }
+    default: break;
+    }
+}
+static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const char* fmt, float H, int icon) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float w = ImGui::GetContentRegionAvail().x;
     ImVec2 lp = ImGui::GetCursorScreenPos();
-    dl->AddText(lp, IM_COL32(150, 190, 255, 255), label);
+    // v2.23: icono a la izquierda + valor en pastilla a la derecha (como la imagen)
+    float ir = H * 0.013f;
+    float lx = lp.x;
+    if (icon != IC_NONE) {
+        DrawPanelIcon(dl, lp.x + ir, lp.y + ImGui::GetTextLineHeight() * 0.5f, ir, icon, IM_COL32(150, 190, 255, 255), H);
+        lx = lp.x + ir * 2.0f + H*0.008f;
+    }
+    dl->AddText(ImVec2(lx, lp.y), IM_COL32(150, 190, 255, 255), label);
     char vb[16]; snprintf(vb, sizeof vb, fmt, *v);
     ImVec2 vs = ImGui::CalcTextSize(vb);
-    dl->AddText(ImVec2(lp.x + w - vs.x, lp.y), IM_COL32(255, 255, 255, 255), vb);
+    dl->AddRectFilled(ImVec2(lp.x + w - vs.x - H*0.016f, lp.y - H*0.002f), ImVec2(lp.x + w, lp.y + vs.y + H*0.002f), IM_COL32(10, 18, 40, 255), H*0.006f);
+    dl->AddRect(ImVec2(lp.x + w - vs.x - H*0.016f, lp.y - H*0.002f), ImVec2(lp.x + w, lp.y + vs.y + H*0.002f), IM_COL32(120, 180, 255, 90), H*0.006f, 0, H*0.001f);
+    dl->AddText(ImVec2(lp.x + w - vs.x - H*0.008f, lp.y), IM_COL32(255, 255, 255, 255), vb);
     ImGui::Dummy(ImVec2(w, ImGui::GetTextLineHeight()));
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     float zoneH = H * 0.045f;
@@ -1104,9 +1180,33 @@ static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const cha
 }
 // Boton propio: rectangulo redondeado con degradado azul y texto centrado.
 // Devuelve true al soltar el dedo sobre el (como un boton de ImGui).
-static bool PanelButton(const char* label, float H) {
+// v2.23: interruptor (pastilla con circulo, como los de ARCX) - fila con el
+// texto a la izquierda y el interruptor a la derecha; tocar la fila cambia
+static bool PanelSwitch(const char* label, bool* v, float H) {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
+    float bh = H * 0.050f;
+    float rd = H * 0.012f;
+    bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh), IM_COL32(16, 90, 220, 255), rd);
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh * 0.45f), IM_COL32(90, 170, 255, 110), rd, ImDrawFlags_RoundCornersTop);
+    dl->AddRect(p0, ImVec2(p0.x + w, p0.y + bh), IM_COL32(120, 180, 255, 130), rd, 0, H*0.0015f);
+    ImVec2 ts = ImGui::CalcTextSize(label);
+    float tx = p0.x + H*0.016f;
+    DrawPanelIcon(dl, tx + H*0.013f, p0.y + bh * 0.5f, H*0.013f, IC_LOCK, IM_COL32(255, 255, 255, 255), H);
+    tx += H*0.013f * 2.0f + H*0.008f;
+    dl->AddText(ImVec2(tx, p0.y + (bh - ts.y) * 0.5f), IM_COL32(255, 255, 255, 255), label);
+    float sw = H * 0.075f, sh = H * 0.038f;  // pastilla del interruptor
+    float sx = p0.x + w - H*0.016f - sw, sy = p0.y + (bh - sh) * 0.5f;
+    dl->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + sw, sy + sh), *v ? IM_COL32(20, 110, 255, 255) : IM_COL32(74, 76, 88, 255), sh * 0.5f);
+    dl->AddCircleFilled(ImVec2(*v ? sx + sw - sh * 0.5f : sx + sh * 0.5f, sy + sh * 0.5f), sh * 0.5f - H*0.004f, IM_COL32(255, 255, 255, 255), 24);
+    if (clicked) *v = !*v;
+    return clicked;
+}
+static bool PanelButtonIcon(const char* label, float H, float w, int icon) {
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    if (w <= 0.0f) w = ImGui::GetContentRegionAvail().x;  // 0 = todo el ancho
     float bh = H * 0.050f;
     float rd = H * 0.012f;  // v2.22: esquinas redondeadas (como las filas de ARCX)
     bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
@@ -1120,10 +1220,20 @@ static bool PanelButton(const char* label, float H) {
     dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh), base, rd);
     dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh * 0.45f), hi, rd, ImDrawFlags_RoundCornersTop);
     dl->AddRect(p0, ImVec2(p0.x + w, p0.y + bh), active ? IM_COL32(150, 205, 255, 210) : IM_COL32(120, 180, 255, 130), rd, 0, H*0.0015f);
+    // v2.23: icono a la izquierda + texto centrado en lo que queda (como la imagen)
+    float ix = p0.x + H*0.016f;
+    float cy = p0.y + bh * 0.5f;
+    float ir = H * 0.013f;
+    if (icon != IC_NONE) {
+        DrawPanelIcon(dl, ix + ir, cy, ir, icon, IM_COL32(255, 255, 255, 255), H);
+        ix += ir * 2.0f + H*0.008f;
+    }
     ImVec2 ts = ImGui::CalcTextSize(label);
-    dl->AddText(ImVec2(p0.x + (w - ts.x) * 0.5f, p0.y + (bh - ts.y) * 0.5f), IM_COL32(255, 255, 255, 255), label);
+    float avail = (p0.x + w) - ix;
+    dl->AddText(ImVec2(ix + (avail - ts.x) * 0.5f, p0.y + (bh - ts.y) * 0.5f), IM_COL32(255, 255, 255, 255), label);
     return clicked;
 }
+static bool PanelButton(const char* label, float H) { return PanelButtonIcon(label, H, 0.0f, IC_NONE); }
 // Recuadro pequeno de color: al tocarlo se abre/cierra el panel RGB para ese color.
 static bool PanelSwatch(const char* label, ImVec4 col, bool active, float H) {
     float s = H * 0.055f;
@@ -1169,9 +1279,9 @@ static void DrawSettings(float W, float H) {
     float titleW = ImGui::GetContentRegionAvail().x;
     ImVec2 wp = ImGui::GetWindowPos(); ImVec2 ws = ImGui::GetWindowSize();  // v2.22: se necesitan arriba (cabecera fija y desplazamiento)
     float pad = H * 0.014f;  // relleno de la ventana
-    float xr = H * 0.025f;   // radio del boton X (como ARCX)
-    ImVec2 xc(wp.x + ws.x - pad - xr, wp.y + pad + xr);  // centro de la X
+    float xr = H * 0.020f;   // v2.23: radio de la X (mas chica que en la v2.22)
     float titleY = wp.y + pad;  // titulo
+    ImVec2 xc(wp.x + ws.x - pad - xr, titleY + ts.y * 0.5f);  // v2.23: centro de la X en la linea del titulo
     float gradY = titleY + ts.y + H*0.004f;  // linea en degradado
     float subY = gradY + H*0.003f + H*0.010f;  // subtitulo
     float headerH = (subY + ImGui::GetTextLineHeight() + H*0.012f) - wp.y;  // alto total de la cabecera
@@ -1248,8 +1358,8 @@ static void DrawSettings(float W, float H) {
         scrollVel = 0.0f;
     }
     // v2.22: el titulo, el subtitulo y la linea van en primer plano (cabecera fija, abajo)
-    if (PanelSlider(S(STR_FONDO), &g_cfg.fondo, 0, 100, "%d%%", H)) g_cfgDirty = true;
-    if (PanelSlider(S(STR_TAMANO), &g_cfg.tamano, 25, 45, "%d%%", H)) g_cfgDirty = true;
+    if (PanelSlider(S(STR_FONDO), &g_cfg.fondo, 0, 100, "%d%%", H, IC_SUN)) g_cfgDirty = true;
+    if (PanelSlider(S(STR_TAMANO), &g_cfg.tamano, 25, 45, "%d%%", H, IC_SIZE)) g_cfgDirty = true;
     // recuadros de color: al tocar uno se abre el panel RGB para ese color
     ImGui::BeginGroup();
     if (PanelSwatch("##swAnillo", ImVec4(g_cfg.ringR / 255.0f, g_cfg.ringG / 255.0f, g_cfg.ringB / 255.0f, 1.0f), g_pickTarget == 0, H)) { g_pickTarget = (g_pickTarget == 0) ? -1 : 0; PlayClick(false); }
@@ -1337,6 +1447,13 @@ static void DrawSettings(float W, float H) {
     }
     ImGui::Separator();
     // v2.16: idioma + boton flotante (tamano, opacidad, bloqueo, posicion)
+    // v2.23: globo a la izquierda de "Idioma" (como la imagen)
+    {
+        ImVec2 ip = ImGui::GetCursorScreenPos();
+        float ir = H * 0.013f;
+        DrawPanelIcon(dl, ip.x + ir, ip.y + ImGui::GetTextLineHeight() * 0.5f, ir, IC_GLOBE, IM_COL32(150, 190, 255, 255), H);
+        ImGui::SetCursorScreenPos(ImVec2(ip.x + ir * 2.0f + H*0.008f, ip.y));
+    }
     ImGui::Text("%s", S(STR_LANG));
     ImGui::SameLine(0, H*0.012f);
     {
@@ -1346,28 +1463,33 @@ static void DrawSettings(float W, float H) {
             Log("idioma: %s", kLangCodes[g_cfg.idioma]);
         }
     }
-    if (PanelSlider(S(STR_BTN_SIZE), &g_cfg.btnTam, 50, 150, "%d%%", H)) g_cfgDirty = true;
-    if (PanelSlider(S(STR_BTN_OPAC), &g_cfg.btnOpac, 30, 100, "%d%%", H)) g_cfgDirty = true;
+    if (PanelSlider(S(STR_BTN_SIZE), &g_cfg.btnTam, 50, 150, "%d%%", H, IC_SIZE)) g_cfgDirty = true;
+    if (PanelSlider(S(STR_BTN_OPAC), &g_cfg.btnOpac, 30, 100, "%d%%", H, IC_OPAC)) g_cfgDirty = true;
     {
-        char lockTxt[128];
-        snprintf(lockTxt, sizeof lockTxt, "%s: %s", S(STR_BTN_LOCK), g_cfg.btnBloq ? "ON" : "OFF");
-        if (PanelButton(lockTxt, H)) { g_cfg.btnBloq = g_cfg.btnBloq ? 0 : 1; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
+        // v2.23: el bloqueo es un interruptor (no un boton con ON/OFF)
+        bool bloq = g_cfg.btnBloq != 0;
+        if (PanelSwitch(S(STR_BTN_LOCK), &bloq, H)) { g_cfg.btnBloq = bloq ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
     }
-    if (PanelButton(S(STR_BTN_RESET_POS), H)) { g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("posicion del boton restablecida"); }
+    // v2.23: botones en rejilla de 2 columnas con icono (como la imagen)
+    {
+        float bw = (ImGui::GetContentRegionAvail().x - H*0.010f) * 0.5f;
+        if (PanelButtonIcon(S(STR_BTN_RESET_POS), H, bw, IC_RESET)) { g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("posicion del boton restablecida"); }
+        ImGui::SameLine(0, H*0.010f);
+        if (PanelButtonIcon(S(STR_PREVIEW), H, bw, IC_EYE)) {
+            g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
+            PlayClick(false);
+            Log("vista previa de la rueda");
+        }
+    }
     ImGui::Separator();
-    if (PanelButton(S(STR_PREVIEW), H)) {
-        g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
-        PlayClick(false);
-        Log("vista previa de la rueda");
-    }
-    if (PanelButton(S(STR_RESET), H)) {
+    if (PanelButtonIcon(S(STR_RESET), H, 0.0f, IC_RESET)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
         g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
-    if (PanelButton(S(STR_CLOSE), H)) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
+    // v2.23: sin boton Cerrar abajo (se cierra con la X de arriba)
     // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)
     if (g_cfgDirty && io.MouseReleased[0]) { SaveCfg(); g_cfgDirty = false; }
     ImGui::Dummy(ImVec2(0, H*0.035f));  // v2.18: espacio para la esquina de redimensionado (el grip se dibuja en primer plano, en la esquina de la ventana)
@@ -1376,6 +1498,9 @@ static void DrawSettings(float W, float H) {
     AddGradientBorder(fg, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), H*0.015f, H*0.004f, PanelGradL(), PanelGradR());
     // v2.22: cabecera fija en primer plano (titulo + subtitulo + X, como ARCX):
     // no se desplaza con el contenido; el contenido se desliza por debajo
+    // v2.23: fondo opaco de la cabecera (tapa el contenido que se desplaza
+    // por debajo; sin esto las funciones se veian detras del titulo)
+    fg->AddRectFilled(ImVec2(wp.x, wp.y), ImVec2(wp.x + ws.x, wp.y + headerH), IM_COL32(5, 13, 33, 255), H*0.015f, ImDrawFlags_RoundCornersTop);
     fg->AddText(ImVec2(wp.x + pad + (titleW - ts.x) * 0.5f, titleY), ImGui::GetColorU32(titleCol), title);
     fg->AddRectFilledMultiColor(ImVec2(wp.x + pad, gradY), ImVec2(wp.x + ws.x - pad, gradY + H*0.003f), IM_COL32(20, 110, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(20, 110, 255, 255));
     fg->AddText(ImVec2(wp.x + pad, subY), ImGui::GetColorU32(subCol), S(STR_HINT));

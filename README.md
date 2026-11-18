@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.22.0-beta
+# VHud Radio Wheel 2.23.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -26,10 +26,18 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   Si existe un .ini viejo en `data/configs/` o en `files/configs/`, se muda solo.
 - La cabecera del panel ("Personalizar rueda de radio" + subtítulo) es FIJA
   (como la del menú de ARCX): no se desplaza con el contenido, que se desliza
-  por debajo. Para cerrar ya no hay que bajar hasta "Cerrar": hay una X arriba
-  a la derecha (círculo oscuro con anillo azul y X blanca, como en ARCX).
-  Los botones ya no son simples rectángulos de ImGui: tienen esquinas
-  redondeadas, brillo superior y borde claro, como las filas de ARCX.
+  por debajo, y lleva fondo opaco para que el contenido no se vea por detrás
+  del título al bajar. Para cerrar ya no hay que bajar hasta "Cerrar": hay
+  una X arriba a la derecha (círculo oscuro con anillo azul y X blanca, como
+  en ARCX), centrada en la línea del título. El botón "Cerrar" de abajo ya no
+  existe.
+- Los botones ya no son simples rectángulos de ImGui: tienen esquinas
+  redondeadas, brillo superior y borde claro, como las filas de ARCX. Cada
+  ajuste lleva su icono a la izquierda (sol, expandir, globo, opacidad) y el
+  valor en una pastilla a la derecha. "Bloquear posición del botón" es un
+  INTERRUPTOR (pastilla con círculo, como los de ARCX), no un botón con
+  ON/OFF. Los botones van en rejilla de 2 columnas con icono (restablecer
+  posición y vista previa arriba, restablecer todo abajo).
 - El panel se puede MOVER (arrastrando desde la cabecera, como el menú de ARCX)
   y cambiar de TAMAÑO en ancho y en alto (desde la esquina inferior derecha,
   con tres rayas en diagonal, como en ARCX; la esquina no se pierde aunque el
