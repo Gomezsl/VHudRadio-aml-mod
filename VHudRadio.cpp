@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.43.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.44.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.43.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.44.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.43.0-beta"
+#define VHUDRADIO_VERSION "2.44.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -974,25 +974,17 @@ static void LoadRadioTextures() {
     // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
     // luego en /storage/emulated/0/vhud/radio/.
     LoadIconSet(g_tex, "radio", "normales", 0, 128);
-    // v2.43: el juego a color ya NO es el slotrad del TXD sino los mismos
-    // disenos blancos de V-HUD solo recoloreados (tintados). Daniel sospecha
-    // que la extraccion del TXD era lo que trababa la musica, no la
-    // resolucion. Siguen a 64x64 (4x menos memoria que a 128) y SOLO si el
-    // .ini dice iconosColor=1. Con iconos blancos no se
-    // cargan ni se gastan memoria (carga perezosa); al activar el interruptor
-    // en el panel se cargan en ese momento. La v2.41 probo que el juego a
-    // color a 128 era lo que trababa la musica.
-    if (g_cfg.iconosColor) {
-        LoadIconSet(g_texColor, "radio_color", "a color", 1, 64);
-        for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
-    }
+    // v2.44 PRUEBA: sin juego a color (como la v2.41). La 2.43 con los
+    // tintados tambien se traba, asi que no era la extraccion del TXD.
+    // El patron apunta a que los datos del juego a color ESTEN en el .so
+    // (la 2.41, sin esos datos, sonaba limpia). No se carga el set a color.
+    (void)0;
     int ok = 0; for (int i = 1; i <= 13; i++) if (g_tex[i]) ok++;
     if (ok == 0) Log("  !! sin iconos ni en carpeta ni incrustados en el .so (no deberia pasar)");
 }
-// v2.42: el icono que se dibuja segun el interruptor (a color si esta activo y existe)
+// v2.44 PRUEBA: solo iconos normales (el juego a color esta quitado)
 static GLuint IconTex(int i) {
     if (i < 0 || i > 13) return 0;
-    if (g_cfg.iconosColor && g_texColor[i]) return g_texColor[i];
     return g_tex[i];
 }
 
@@ -1893,13 +1885,7 @@ static void DrawSettings(float W, float H) {
         if (PanelSwitch(S(STR_BTN_LOCK), &bloq, H)) { g_cfg.btnBloq = bloq ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
     }
     {
-        // v2.42: interruptor de iconos a color (a 64x64, carga perezosa)
-        bool color = g_cfg.iconosColor != 0;
-        if (PanelSwitch(S(STR_ICONOSCOLOR), &color, H)) {
-            g_cfg.iconosColor = color ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false);
-            if (g_cfg.iconosColor && !g_texColor[1]) { LoadIconSet(g_texColor, "radio_color", "a color", 1, 64); for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i]; }
-            Log("iconos de las emisoras: %s", g_cfg.iconosColor ? "a color" : "normales");
-        }
+        // v2.44 PRUEBA: interruptor de iconos a color quitado (sin juego a color)
         bool lenta = g_cfg.camaraLenta != 0;
         if (PanelSwitch(S(STR_CAMARALENTA), &lenta, H)) { g_cfg.camaraLenta = lenta ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("camara lenta: %s", g_cfg.camaraLenta ? "activada" : "apagada"); }
         bool btnVis = g_cfg.botonVisible != 0;
