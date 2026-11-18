@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.21.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.22.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,18 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.22: CABECERA FIJA ESTILO ARCX (X PARA CERRAR) + BOTONES REDISENADOS
+// - La cabecera ("Personalizar rueda de radio" + subtitulo) ya no se desplaza
+//   con el contenido: se dibuja en primer plano (como la cabecera del menu de
+//   ARCX) y el contenido se desliza por debajo. Arrastrar la cabecera sigue
+//   moviendo el panel.
+// - X para cerrar arriba a la derecha (circulo oscuro con anillo azul y X
+//   blanca, como ARCX): ya no hay que bajar hasta "Cerrar" para cerrar el
+//   panel (el boton "Cerrar" sigue abajo por si acaso).
+// - Botones redisenados (Bloquear posicion, Restablecer posicion, Vista
+//   previa, Restablecer todo, Cerrar): esquinas redondeadas, brillo superior
+//   y borde claro, como las filas de ARCX; ya no son simples rectangulos
+//   planos de ImGui.
 // v2.21: DESPLAZAMIENTO ESTILO ARCX (SOLO DENTRO DEL PANEL + INERCIA)
 // - La v2.20 no comprobaba donde empezaba el arrastre y un arrastre vertical
 //   en el juego (fuera del panel) tambien desplazaba el panel. Ahora, como
@@ -402,9 +414,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.21.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.22.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.21.0-beta"
+#define VHUDRADIO_VERSION "2.22.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -1096,13 +1108,18 @@ static bool PanelButton(const char* label, float H) {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
     float bh = H * 0.050f;
+    float rd = H * 0.012f;  // v2.22: esquinas redondeadas (como las filas de ARCX)
     bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
     bool active = ImGui::IsItemActive();
+    bool hovered = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImU32 c0 = active ? IM_COL32(40, 140, 255, 255) : IM_COL32(16, 90, 220, 255);
-    ImU32 c1 = active ? IM_COL32(10, 90, 230, 255) : IM_COL32(8, 50, 160, 255);
-    dl->AddRectFilledMultiColor(p0, ImVec2(p0.x + w, p0.y + bh), c0, c1, c1, c0);
-    dl->AddRect(p0, ImVec2(p0.x + w, p0.y + bh), IM_COL32(120, 180, 255, 120), H*0.008f, 0, H*0.0015f);
+    // v2.22: boton estilo ARCX - fila redondeada con brillo superior, borde
+    // claro y estado al pulsar; ya no es un rectangulo plano de ImGui
+    ImU32 base = active ? IM_COL32(10, 70, 190, 255) : (hovered ? IM_COL32(24, 110, 235, 255) : IM_COL32(16, 90, 220, 255));
+    ImU32 hi = active ? IM_COL32(40, 120, 240, 120) : IM_COL32(90, 170, 255, 110);
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh), base, rd);
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + bh * 0.45f), hi, rd, ImDrawFlags_RoundCornersTop);
+    dl->AddRect(p0, ImVec2(p0.x + w, p0.y + bh), active ? IM_COL32(150, 205, 255, 210) : IM_COL32(120, 180, 255, 130), rd, 0, H*0.0015f);
     ImVec2 ts = ImGui::CalcTextSize(label);
     dl->AddText(ImVec2(p0.x + (w - ts.x) * 0.5f, p0.y + (bh - ts.y) * 0.5f), IM_COL32(255, 255, 255, 255), label);
     return clicked;
@@ -1142,25 +1159,54 @@ static void DrawSettings(float W, float H) {
     if (!opened) { ImGui::End(); if (g_fontUI) ImGui::PopFont(); ImGui::PopStyleColor(3); ImGui::PopStyleVar(4); return; }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImGuiIO& io = ImGui::GetIO();
-    // titulo centrado + linea en degradado azul; v2.17: arrastrar el titulo
-    // mueve el panel (como la cabecera del menu de ARCX)
+    // v2.22: cabecera fija (como ARCX) - el titulo, el subtitulo y la X se
+    // dibujan en primer plano y NO se desplazan con el contenido; arrastrar
+    // la cabecera mueve el panel y la X de arriba a la derecha lo cierra (ya
+    // no hay que bajar hasta "Cerrar"). La cabecera se comprueba a mano (como
+    // la esquina de redimensionado) porque esta en primer plano.
     const char* title = S(STR_TITLE);
     ImVec2 ts = ImGui::CalcTextSize(title);
-    ImVec2 titlePos = ImGui::GetCursorScreenPos();
     float titleW = ImGui::GetContentRegionAvail().x;
-    ImGui::InvisibleButton("##panelDrag", ImVec2(titleW, ts.y + H*0.004f));
+    ImVec2 wp = ImGui::GetWindowPos(); ImVec2 ws = ImGui::GetWindowSize();  // v2.22: se necesitan arriba (cabecera fija y desplazamiento)
+    float pad = H * 0.014f;  // relleno de la ventana
+    float xr = H * 0.025f;   // radio del boton X (como ARCX)
+    ImVec2 xc(wp.x + ws.x - pad - xr, wp.y + pad + xr);  // centro de la X
+    float titleY = wp.y + pad;  // titulo
+    float gradY = titleY + ts.y + H*0.004f;  // linea en degradado
+    float subY = gradY + H*0.003f + H*0.010f;  // subtitulo
+    float headerH = (subY + ImGui::GetTextLineHeight() + H*0.012f) - wp.y;  // alto total de la cabecera
     static bool panelMoved = false;
+    static bool panelMoving = false;  // v2.22: se esta arrastrando la cabecera
+    static bool xPressed = false;     // v2.22: se pulso la X (se cierra al soltar sobre ella)
     static bool panelResizing = false; static ImVec2 gripOff;  // v2.19: se declaran aqui (los usa el desplazamiento tactil de abajo)
-    if (ImGui::IsItemActivated() && (g_cfg.panelX < 0.0f || g_cfg.panelY < 0.0f)) { ImVec2 wp = ImGui::GetWindowPos(); g_cfg.panelX = wp.x / W; g_cfg.panelY = wp.y / H; }
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 6.0f)) {
-        g_cfg.panelX += io.MouseDelta.x / W;
-        g_cfg.panelY += io.MouseDelta.y / H;
-        ImVec2 ws = ImGui::GetWindowSize();
-        if (g_cfg.panelX < 0.0f) g_cfg.panelX = 0.0f; if (g_cfg.panelX > 1.0f - ws.x / W) g_cfg.panelX = 1.0f - ws.x / W;
-        if (g_cfg.panelY < 0.0f) g_cfg.panelY = 0.0f; if (g_cfg.panelY > 1.0f - ws.y / H) g_cfg.panelY = 1.0f - ws.y / H;
-        panelMoved = true; g_cfgDirty = true;
+    ImGui::Dummy(ImVec2(titleW, headerH - pad));  // reserva el hueco de la cabecera fija
+    // X de cerrar (arriba a la derecha, como ARCX): circulo oscuro con
+    // anillo azul y X blanca; se cierra al soltar el dedo sobre ella
+    bool inX = io.MousePos.x >= xc.x - xr && io.MousePos.x <= xc.x + xr && io.MousePos.y >= xc.y - xr && io.MousePos.y <= xc.y + xr;
+    if (io.MouseClicked[0] && inX) xPressed = true;
+    if (io.MouseReleased[0]) {
+        if (xPressed && inX) { g_settings = false; g_cfgDirty = false; SaveCfg(); Log("panel cerrado (ajustes guardados)"); }
+        xPressed = false;
     }
-    if (ImGui::IsItemDeactivated()) { if (panelMoved) { SaveCfg(); panelMoved = false; } }
+    // arrastrar la cabecera mueve el panel (como ARCX); si la posicion es
+    // -1 (centrado) toma la posicion real de la ventana al empezar
+    bool inHeader = io.MousePos.x >= wp.x && io.MousePos.x <= wp.x + ws.x && io.MousePos.y >= wp.y && io.MousePos.y <= wp.y + headerH;
+    if (io.MouseClicked[0] && inHeader && !inX) {
+        panelMoving = true;
+        if (g_cfg.panelX < 0.0f || g_cfg.panelY < 0.0f) { g_cfg.panelX = wp.x / W; g_cfg.panelY = wp.y / H; }
+    }
+    if (panelMoving) {
+        if (io.MouseDown[0] && ImGui::IsMouseDragging(0, 6.0f)) {
+            g_cfg.panelX += io.MouseDelta.x / W;
+            g_cfg.panelY += io.MouseDelta.y / H;
+            if (g_cfg.panelX < 0.0f) g_cfg.panelX = 0.0f; if (g_cfg.panelX > 1.0f - ws.x / W) g_cfg.panelX = 1.0f - ws.x / W;
+            if (g_cfg.panelY < 0.0f) g_cfg.panelY = 0.0f; if (g_cfg.panelY > 1.0f - ws.y / H) g_cfg.panelY = 1.0f - ws.y / H;
+            panelMoved = true; g_cfgDirty = true;
+        } else if (!io.MouseDown[0]) {
+            if (panelMoved) SaveCfg();
+            panelMoved = false; panelMoving = false;
+        }
+    }
     // v2.21: desplazamiento tactil estilo ARCX - el menu de ARCX (ListView)
     // solo responde a toques DENTRO de su area (inView al pulsar) y el
     // desplazamiento sigue al dedo desde donde se pulso (scroll = scroll al
@@ -1170,18 +1216,17 @@ static void DrawSettings(float W, float H) {
     // direccion sigue como en la v2.20: vertical = desplaza, horizontal =
     // deslizador. Con el selector de color abierto no hay desplazamiento por
     // direccion (sus arrastres son en vertical y son del color). Tampoco si
-    // el arrastre es el titulo (que mueve el panel) o la esquina (que lo
-    // redimensiona).
+    // el arrastre es la cabecera (que mueve el panel), la X o la esquina
+    // (que lo redimensiona).
     static bool panelScrolling = false; static bool scrollDecided = false; static ImVec2 scrollStart;
     static bool scrollStartInPanel = false; static float scrollStartY = 0.0f; static float scrollVel = 0.0f;
-    bool titleActive = ImGui::IsItemActive();  // el ultimo item es el titulo
     if (io.MouseClicked[0]) {
         scrollStart = io.MousePos; scrollDecided = false; panelScrolling = false; g_panelScrolling = false; scrollVel = 0.0f;
         scrollStartY = ImGui::GetScrollY();
         ImVec2 wp0 = ImGui::GetWindowPos(); ImVec2 ws0 = ImGui::GetWindowSize();
         scrollStartInPanel = io.MousePos.x >= wp0.x && io.MousePos.x <= wp0.x + ws0.x && io.MousePos.y >= wp0.y && io.MousePos.y <= wp0.y + ws0.y;
     }
-    if (io.MouseDown[0] && !scrollDecided && !titleActive && !panelResizing && g_pickTarget < 0) {
+    if (io.MouseDown[0] && !scrollDecided && !panelMoving && !xPressed && !panelResizing && g_pickTarget < 0) {
         if (!scrollStartInPanel) { scrollDecided = true; }  // el arrastre empezo fuera del panel: nunca desplaza
         else {
             float dx = io.MousePos.x - scrollStart.x, dy = io.MousePos.y - scrollStart.y;
@@ -1202,13 +1247,7 @@ static void DrawSettings(float W, float H) {
     } else if (!io.MouseDown[0]) {
         scrollVel = 0.0f;
     }
-    dl->AddText(ImVec2(titlePos.x + (titleW - ts.x) * 0.5f, titlePos.y), ImGui::GetColorU32(titleCol), title);
-    ImVec2 lp = ImGui::GetCursorScreenPos();
-    float lw = ImGui::GetContentRegionAvail().x;
-    dl->AddRectFilledMultiColor(lp, ImVec2(lp.x + lw, lp.y + H*0.003f), IM_COL32(20, 110, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(20, 110, 255, 255));
-    ImGui::Dummy(ImVec2(lw, H*0.010f));
-    ImGui::TextColored(subCol, "%s", S(STR_HINT));
-    ImGui::Separator();
+    // v2.22: el titulo, el subtitulo y la linea van en primer plano (cabecera fija, abajo)
     if (PanelSlider(S(STR_FONDO), &g_cfg.fondo, 0, 100, "%d%%", H)) g_cfgDirty = true;
     if (PanelSlider(S(STR_TAMANO), &g_cfg.tamano, 25, 45, "%d%%", H)) g_cfgDirty = true;
     // recuadros de color: al tocar uno se abre el panel RGB para ese color
@@ -1334,8 +1373,21 @@ static void DrawSettings(float W, float H) {
     ImGui::Dummy(ImVec2(0, H*0.035f));  // v2.18: espacio para la esquina de redimensionado (el grip se dibuja en primer plano, en la esquina de la ventana)
     // borde en degradado azul alrededor de toda la ventana
     ImDrawList* fg = ImGui::GetForegroundDrawList();
-    ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     AddGradientBorder(fg, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), H*0.015f, H*0.004f, PanelGradL(), PanelGradR());
+    // v2.22: cabecera fija en primer plano (titulo + subtitulo + X, como ARCX):
+    // no se desplaza con el contenido; el contenido se desliza por debajo
+    fg->AddText(ImVec2(wp.x + pad + (titleW - ts.x) * 0.5f, titleY), ImGui::GetColorU32(titleCol), title);
+    fg->AddRectFilledMultiColor(ImVec2(wp.x + pad, gradY), ImVec2(wp.x + ws.x - pad, gradY + H*0.003f), IM_COL32(20, 110, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(10, 200, 255, 255), IM_COL32(20, 110, 255, 255));
+    fg->AddText(ImVec2(wp.x + pad, subY), ImGui::GetColorU32(subCol), S(STR_HINT));
+    fg->AddLine(ImVec2(wp.x + pad, subY + ImGui::GetTextLineHeight() + H*0.006f), ImVec2(wp.x + ws.x - pad, subY + ImGui::GetTextLineHeight() + H*0.006f), ImGui::GetColorU32(ImVec4(0.10f, 0.45f, 1.0f, 0.5f)), H*0.0015f);
+    // X de cerrar (circulo oscuro con anillo azul y X blanca, como ARCX)
+    {
+        bool xAct = xPressed && io.MouseDown[0];
+        fg->AddCircleFilled(xc, xr, xAct ? IM_COL32(60, 60, 90, 255) : IM_COL32(22, 22, 30, 255), 32);
+        fg->AddCircle(xc, xr, IM_COL32(20, 110, 255, 255), 32, H*0.003f);
+        fg->AddLine(ImVec2(xc.x - xr * 0.34f, xc.y - xr * 0.34f), ImVec2(xc.x + xr * 0.34f, xc.y + xr * 0.34f), IM_COL32(255, 255, 255, 255), H*0.003f);
+        fg->AddLine(ImVec2(xc.x + xr * 0.34f, xc.y - xr * 0.34f), ImVec2(xc.x - xr * 0.34f, xc.y + xr * 0.34f), IM_COL32(255, 255, 255, 255), H*0.003f);
+    }
     // v2.18: esquina de redimensionado en la esquina de la ventana (como en ARCX):
     // se dibuja en primer plano y se arrastra a mano para que nunca se pierda
     // al hacer scroll (el alto es ajustable y el contenido puede ser mas alto
