@@ -22,6 +22,8 @@
 //   volvia a 0/rojo). Ahora la sincronizacion no borra el tono si el color
 //   es gris, y al mover la barra de tono con S casi 0 se pone saturado para
 //   que el color cambie de verdad.
+// - Credito al final del panel: "rueda de radio GTAV de Hunter09" (abajo
+//   del todo, centrado y en gris, como el "By Hunter09" de ARCX).
 // v2.23: CABECERA CON FONDO OPACO + X ACOMODADA + INTERRUPTOR + REDISENO
 // - La v2.22 dibujaba la cabecera fija en primer plano pero SIN fondo: al
 //   bajar, el contenido se veia por detras del titulo (se veian las funciones
@@ -1514,6 +1516,15 @@ static void DrawSettings(float W, float H) {
         g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
+    }
+    // v2.24: credito al final del contenido (abajo del todo, como el
+    // "By Hunter09" del menu de ARCX) - texto fijo, no se traduce
+    ImGui::Dummy(ImVec2(0, H*0.008f));
+    {
+        const char* credit = "rueda de radio GTAV de Hunter09";
+        float cw = ImGui::CalcTextSize(credit).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - cw) * 0.5f);
+        ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.75f, 1.0f), "%s", credit);
     }
     // v2.23: sin boton Cerrar abajo (se cierra con la X de arriba)
     // guardar al soltar (por si se arrastro el color o un deslizador y no se pulso Cerrar)

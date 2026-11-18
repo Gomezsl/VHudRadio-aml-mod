@@ -47,6 +47,8 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   porque un gris no tiene tono. Ahora el tono elegido se conserva, y al
   mover la barra con un color gris el color se pone saturado para que el
   cambio se vea.
+- Crédito al final del panel: "rueda de radio GTAV de Hunter09" (abajo del
+  todo, centrado, como el "By Hunter09" de ARCX).
 - El panel se puede MOVER (arrastrando desde la cabecera, como el menú de ARCX)
   y cambiar de TAMAÑO en ancho y en alto (desde la esquina inferior derecha,
   con tres rayas en diagonal, como en ARCX; la esquina no se pierde aunque el
