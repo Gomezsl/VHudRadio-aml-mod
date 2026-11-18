@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.29.0-beta
+# VHud Radio Wheel 2.30.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -19,6 +19,17 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   color": encendido se ven los de color (en la rueda y en el botón flotante),
   apagado se ven los normales. Se guarda como `iconosColor=0/1` en el .ini.
   Si a un icono a color le falta, se usa el normal de esa emisora.
+- v2.30: menos trabajo en cada frame para que el mod de User Tracks no se
+  trabe. La rueda hacia el frame de ImGui en CADA frame (para el botón
+  flotante) y eso le quitaba CPU al decodificador de MP3 por software del
+  mod SAUserTracks, así que la canción se escuchaba entrecortada. Ahora hay
+  dos interruptores nuevos en el panel: "Cámara lenta al abrir la rueda"
+  (`camaraLenta=0/1`, por defecto prendida) y "Mostrar botón flotante"
+  (`botonVisible=0/1`, por defecto prendido). Con el botón oculto y la
+  rueda/panel cerrados, la rueda se salta el frame de ImGui entero. El
+  diagnóstico de audio del coche ya no corre en cada frame, solo al entrar
+  al coche. La rueda se sigue abriendo con doble toque al claxon aunque el
+  botón esté oculto.
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
 - Botón flotante con etiqueta (nombre + género de la estación):
