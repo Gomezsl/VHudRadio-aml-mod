@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.24.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.25.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,15 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.25: LAS BARRAS NO SE REGRESAN AL TOCAR OTRA PARTE DEL PANEL
+// - PanelSlider guardaba el valor al pulsar (savedPtr/savedVal) para
+//   restaurarlo si el arrastre acababa siendo un desplazamiento del panel.
+//   Pero ese valor guardado NUNCA se olvidaba: quedaba apuntando a la
+//   ultima barra ajustada, asi que al desplazar el panel despues (tocando
+//   otra parte), la barra se restauraba a su valor anterior al ajuste y
+//   volvia a su mismo lugar. Ahora al soltar el dedo se olvida el valor
+//   guardado (savedPtr = nullptr), asi que solo se restaura durante el
+//   mismo arrastre que empezo en esa barra.
 // v2.24: DESPLAZAR CON EL SELECTOR ABIERTO + BARRA DE TONO QUE NO SE REGRESA
 // - La v2.20-v2.23 no permitia desplazar el panel con el selector de color
 //   abierto (para no robarle sus arrastres verticales), asi que con el
@@ -442,9 +451,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.24.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.25.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.24.0-beta"
+#define VHUDRADIO_VERSION "2.25.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -1184,6 +1193,10 @@ static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const cha
     static int* savedPtr = nullptr; static int savedVal = 0;
     if (ImGui::IsItemActivated()) { savedPtr = v; savedVal = *v; }
     if (g_panelScrolling && savedPtr == v) *v = savedVal;
+    // v2.25: al soltar se olvida el valor guardado; si no, un desplazamiento
+    // posterior (tocando otra parte del panel) restauraba la ultima barra
+    // ajustada a su valor anterior y se regresaba a su mismo lugar
+    if (!io.MouseDown[0]) savedPtr = nullptr;
     if (active && io.MouseDown[0] && !g_panelScrolling) {
         float f = (io.MousePos.x - p0.x) / w;
         int nv = vmin + (int)(f * (float)(vmax - vmin) + 0.5f);
