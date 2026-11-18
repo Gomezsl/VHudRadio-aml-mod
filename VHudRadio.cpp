@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.41.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.42.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.41.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.42.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.41.0-beta"
+#define VHUDRADIO_VERSION "2.42.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -876,17 +876,18 @@ static std::vector<unsigned char> B64Decode(const char* s) {
     }
     return out;
 }
-static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
+static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len, int maxDim = 128) {
     int w = 0, h = 0, ch = 0;
     unsigned char* px = stbi_load_from_memory(buf, (int)len, &w, &h, &ch, 4);
     if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return 0; }
     // v2.35: los iconos a color son de 256x256 y se dibujan a ~94 px sin
-    // mipmaps; achicarlos a 128x128 (como los normales) antes de subirlos.
+    // mipmaps; achicarlos antes de subirlos. v2.42: maxDim es 128 para los
+    // normales y 64 para los de color (4x menos memoria y muestreo).
     unsigned char* pxSmall = nullptr;
     unsigned char* upPx = px;
     int upW = w, upH = h;
-    if (w > 128 || h > 128) {
-        int nw = w > 128 ? 128 : w, nh = h > 128 ? 128 : h;
+    if (w > maxDim || h > maxDim) {
+        int nw = w > maxDim ? maxDim : w, nh = h > maxDim ? maxDim : h;
         pxSmall = (unsigned char*)malloc((size_t)nw * nh * 4);
         if (pxSmall) {
             for (int y = 0; y < nh; y++) {
@@ -921,7 +922,7 @@ static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
     stbi_image_free(px);
     return glGetError() == GL_NO_ERROR ? tex : 0;
 }
-static GLuint LoadPngToGl(const std::string& path) {
+static GLuint LoadPngToGl(const std::string& path, int maxDim = 128) {
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return 0;
     fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
@@ -929,17 +930,17 @@ static GLuint LoadPngToGl(const std::string& path) {
     std::vector<unsigned char> buf((size_t)len);
     if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
     fclose(f);
-    return LoadPngFromMemory(buf.data(), buf.size());
+    return LoadPngFromMemory(buf.data(), buf.size(), maxDim);
 }
 // v2.29: un icono: primero la carpeta (si el usuario puso su propio PNG, manda),
 // si no esta, el PNG incrustado en el .so. srcOut dice de donde salio.
-static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, const char** srcOut) {
-    GLuint t = LoadPngToGl(path);
+static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, const char** srcOut, int maxDim = 128) {
+    GLuint t = LoadPngToGl(path, maxDim);
     if (t) { if (srcOut) *srcOut = "archivo"; return t; }
     const char* b64 = EmbeddedIconB64(set, idx);
     if (b64) {
         std::vector<unsigned char> raw = B64Decode(b64);
-        if (!raw.empty()) t = LoadPngFromMemory(raw.data(), raw.size());
+        if (!raw.empty()) t = LoadPngFromMemory(raw.data(), raw.size(), maxDim);
     }
     if (t) { if (srcOut) *srcOut = "en el .so"; return t; }
     if (srcOut) *srcOut = "-";
@@ -949,7 +950,7 @@ static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, 
 // con los mismos respaldos de carpeta que antes.
 // v2.29: la carpeta ya es opcional: si el PNG no esta en la carpeta, se usa el
 // incrustado en el .so (icons_embedded.h). La carpeta sigue mandando si existe.
-static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, int set) {
+static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, int set, int maxDim = 128) {
     std::string dir = g_gameFilesDir + "/VHudRadio/" + subdir;
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_gameFilesDir + "/vhud/" + subdir; }
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/" + subdir; }
@@ -958,12 +959,12 @@ static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, i
     for (int i = 1; i <= 13; i++) {
         const char* src = "-";
         std::string p = dir + "/radio_" + std::to_string(i) + ".png";
-        tex[i] = LoadIconFileOrEmbedded(set, i, p, &src);
+        tex[i] = LoadIconFileOrEmbedded(set, i, p, &src, maxDim);
         if (tex[i]) ok++;
         Log("  %s %s radio_%d.png (%s)", etiqueta, tex[i] ? "ok    " : "FALTA ", i, src);
     }
     const char* src0 = "-";
-    tex[0] = LoadIconFileOrEmbedded(set, 0, dir + "/radio_current.png", &src0);
+    tex[0] = LoadIconFileOrEmbedded(set, 0, dir + "/radio_current.png", &src0, maxDim);
     Log("  %s %s radio_current.png (%s)", etiqueta, tex[0] ? "ok    " : "FALTA ", src0);
     Log("iconos %s cargados: %d/13 (+marco %s)", etiqueta, ok, tex[0] ? "si" : "no");
 }
@@ -972,20 +973,23 @@ static void LoadRadioTextures() {
     // v2.16: iconos normales en files del juego (Android/data/.../files/VHudRadio/radio/);
     // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
     // luego en /storage/emulated/0/vhud/radio/.
-    LoadIconSet(g_tex, "radio", "normales", 0);
-    // v2.41 (PRUEBA): iconos a color DESACTIVADOS. Daniel sospecha que el
-    // interruptor de iconos a color (v2.28) o las imagenes incrustadas (v2.29)
-    // traban la musica. Aqui solo se quita el juego a color: no se carga
-    // radio_color y siempre se dibujan los iconos normales (blancos). Si la
-    // musica suena limpia, el problema eran los iconos a color.
-    // LoadIconSet(g_texColor, "radio_color", "a color", 1);
-    // for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
+    LoadIconSet(g_tex, "radio", "normales", 0, 128);
+    // v2.42: iconos a color de vuelta pero a 64x64 (4x menos memoria que a
+    // 128) y SOLO si el .ini dice iconosColor=1. Con iconos blancos no se
+    // cargan ni se gastan memoria (carga perezosa); al activar el interruptor
+    // en el panel se cargan en ese momento. La v2.41 probo que el juego a
+    // color a 128 era lo que trababa la musica.
+    if (g_cfg.iconosColor) {
+        LoadIconSet(g_texColor, "radio_color", "a color", 1, 64);
+        for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
+    }
     int ok = 0; for (int i = 1; i <= 13; i++) if (g_tex[i]) ok++;
     if (ok == 0) Log("  !! sin iconos ni en carpeta ni incrustados en el .so (no deberia pasar)");
 }
-// v2.41 (PRUEBA): siempre el icono normal; el juego a color no se carga.
+// v2.42: el icono que se dibuja segun el interruptor (a color si esta activo y existe)
 static GLuint IconTex(int i) {
     if (i < 0 || i > 13) return 0;
+    if (g_cfg.iconosColor && g_texColor[i]) return g_texColor[i];
     return g_tex[i];
 }
 
@@ -1886,8 +1890,13 @@ static void DrawSettings(float W, float H) {
         if (PanelSwitch(S(STR_BTN_LOCK), &bloq, H)) { g_cfg.btnBloq = bloq ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
     }
     {
-        // v2.41 (PRUEBA): interruptor de iconos a color oculto (el juego a color
-        // no se carga en esta version de prueba).
+        // v2.42: interruptor de iconos a color (a 64x64, carga perezosa)
+        bool color = g_cfg.iconosColor != 0;
+        if (PanelSwitch(S(STR_ICONOSCOLOR), &color, H)) {
+            g_cfg.iconosColor = color ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false);
+            if (g_cfg.iconosColor && !g_texColor[1]) { LoadIconSet(g_texColor, "radio_color", "a color", 1, 64); for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i]; }
+            Log("iconos de las emisoras: %s", g_cfg.iconosColor ? "a color" : "normales");
+        }
         bool lenta = g_cfg.camaraLenta != 0;
         if (PanelSwitch(S(STR_CAMARALENTA), &lenta, H)) { g_cfg.camaraLenta = lenta ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("camara lenta: %s", g_cfg.camaraLenta ? "activada" : "apagada"); }
         bool btnVis = g_cfg.botonVisible != 0;
