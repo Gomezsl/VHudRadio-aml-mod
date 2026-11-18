@@ -104,6 +104,15 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   y CMenuManager::DrawFrontEnd) para que la UI no se vea en el menú de pausa.
   (Si el teléfono no resuelve el menú, el panel sigue siendo usable y se
   puede cerrar con su botón Cerrar.)
-- Log: `VHudRadioLog.txt` junto al juego.
+- Log: `VHudRadioLog.txt` en files/VHudRadio/, junto al .ini.
 - Si ningún símbolo de radio resolvió (ver `probe/`), la rueda se dibuja pero no
   cambia la estación y lo deja escrito en el log. No se llama a nada que no resolvió.
+
+## Créditos
+
+- El mod (la rueda de radio) es de Hunter09.
+- Las imágenes de las emisoras (`VHudRadio/radio/`) son del proyecto
+  [V-HUD](https://github.com/gennariarmando/v-hud), de Armando Gennari (_AG),
+  bajo licencia MIT. El archivo LICENSE original de V-HUD va incluido en el
+  paquete que se comparte, con su línea de Copyright intacta.
+- Los logos de las emisoras son de Rockstar Games (GTA San Andreas).
