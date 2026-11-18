@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.33.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.34.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.33.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.34.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.33.0-beta"
+#define VHUDRADIO_VERSION "2.34.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -1102,8 +1102,15 @@ static bool FloatBtnHit(float x, float y, float W, float H) {
 // SAUserTracks se quedaba sin CPU en el A14; ARCX no dibuja ImGui cuando
 // su menu esta cerrado. La rueda/panel/vista previa siguen con ImGui.
 struct GLBtnVert { float x, y, u, v, r, g, b, a; };
-static GLuint g_glBtnProg = 0, g_glBtnVBO = 0, g_glBtnWhite = 0;
-static bool g_glBtnTried = false, g_glBtnOk = false;
+static GLuint g_glBtnProg = 0, g_glBtnVBO = 0, g_glBtnWhite = 0, g_glBtnVAO = 0;
+static bool g_glBtnTried = false, g_glBtnOk = false, g_glBtnUseVAO = false;
+#ifndef GL_VERTEX_ARRAY_BINDING
+#define GL_VERTEX_ARRAY_BINDING 0x85B5
+#endif
+typedef void (*PFNGLGENVA)(GLsizei, GLuint*);
+typedef void (*PFNGLBINDVA)(GLuint);
+static PFNGLGENVA g_pGenVA = nullptr;
+static PFNGLBINDVA g_pBindVA = nullptr;
 static GLuint GLBtnCompile(GLenum type, const char* src) {
     GLuint sh = glCreateShader(type);
     glShaderSource(sh, 1, &src, nullptr);
@@ -1134,6 +1141,27 @@ static bool GLBtnInit() {
     glDeleteShader(vsh); glDeleteShader(fsh);
     if (!ok) { char buf[512]; glGetProgramInfoLog(g_glBtnProg, sizeof(buf), nullptr, buf); Log("  !! boton GL: programa no enlazo: %s", buf); glDeleteProgram(g_glBtnProg); g_glBtnProg = 0; return false; }
     glGenBuffers(1, &g_glBtnVBO);
+    // v2.34: VAO propio. Sin el, glVertexAttribPointer toca el VAO del
+    // juego (ES 3.x) y la pantalla se pone en negro al subir a un auto.
+    g_pGenVA = (PFNGLGENVA)eglGetProcAddress("glGenVertexArrays");
+    g_pBindVA = (PFNGLBINDVA)eglGetProcAddress("glBindVertexArray");
+    if (g_pGenVA && g_pBindVA) {
+        g_pGenVA(1, &g_glBtnVAO);
+        g_pBindVA(g_glBtnVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
+        glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)8);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)16);
+        g_pBindVA(0);
+        g_glBtnUseVAO = true;
+        Log("boton GL: VAO %u listo", (unsigned)g_glBtnVAO);
+    } else {
+        // Sin VAO (ES 2.0): no hay VAO que corromper; los atributos se
+        // ponen cada cuadro en DrawButtonGL.
+        g_glBtnUseVAO = false;
+        Log("boton GL: sin VAO (ES 2.0)");
+    }
     unsigned char px[4] = {255, 255, 255, 255};
     glGenTextures(1, &g_glBtnWhite);
     glBindTexture(GL_TEXTURE_2D, g_glBtnWhite);
@@ -1217,13 +1245,16 @@ static bool DrawButtonGL(float W, float H) {
     // Icono de la estacion.
     GLuint it = IconTex(g_current);
     if (it) quadTo(vIco, bp.x, bp.y, bp.x + bs, bp.y + bs, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, opF);
-    // Guardar estado GL del juego.
+    // Guardar estado GL del juego (incluido el VAO y el framebuffer).
     GLint prevProg = 0, prevTex = 0, prevArr = 0, prevElem = 0, prevActive = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArr);
     glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElem);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    GLint prevVAO = 0, prevFB = 0;
+    if (g_glBtnUseVAO) glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFB);
     GLboolean prevBlend = glIsEnabled(GL_BLEND);
     GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
     GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
@@ -1235,6 +1266,15 @@ static bool DrawButtonGL(float W, float H) {
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (g_glBtnUseVAO) g_pBindVA(g_glBtnVAO);
+    else {
+        glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
+        glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)8);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)16);
+    }
     glActiveTexture(GL_TEXTURE0);
     glUseProgram(g_glBtnProg);
     GLint uProj = glGetUniformLocation(g_glBtnProg, "uProj");
@@ -1242,10 +1282,6 @@ static bool DrawButtonGL(float W, float H) {
     glUniformMatrix4fv(uProj, 1, GL_FALSE, proj);
     glUniform1i(uTex, 0);
     glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
-    glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)8);
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)16);
     auto drawVerts = [&](const std::vector<GLBtnVert>& verts, GLuint tex) {
         if (verts.empty()) return;
         glBindTexture(GL_TEXTURE_2D, tex);
@@ -1271,7 +1307,9 @@ static bool DrawButtonGL(float W, float H) {
         }
     }
     // Restaurar estado.
-    glDisableVertexAttribArray(0); glDisableVertexAttribArray(1); glDisableVertexAttribArray(2);
+    if (g_glBtnUseVAO) g_pBindVA((GLuint)prevVAO);
+    else { glDisableVertexAttribArray(0); glDisableVertexAttribArray(1); glDisableVertexAttribArray(2); }
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFB);
     glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevArr);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)prevElem);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
