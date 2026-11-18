@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.35.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.36.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -377,7 +377,7 @@
 //   con OpenSL ES (sin depender del juego).
 // - Panel de personalizacion: oscuridad del fondo, tamano de la rueda, color del
 //   anillo de seleccion, vista previa (solo se ve, no cambia la estacion) y
-//   restablecer todo. Se guarda en files/VHudRadio/VHudRadio.ini.
+//   restablecer todo. Se guarda en data/configs/VHudRadio.ini.
 // v2.1: LOGOS CON AIRE + MEJOR LETRA + BOTON CON OTRA FUNCION + ICONOS EN FILES
 // - Los logos se veian muy juntos: anillo mas grande (0.83R) e iconos mas chicos
 //   (0.175R) para que no se toquen.
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.35.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.36.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.35.0-beta"
+#define VHUDRADIO_VERSION "2.36.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -559,12 +559,12 @@ static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indone
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
 enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_COUNT };
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en VHudRadio/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante" },
-    { "Customize radio wheel", "Background, size and colors. Saved in VHudRadio/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di VHudRadio/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em VHudRadio/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans VHudRadio/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in VHudRadio/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante" },
+    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -626,7 +626,7 @@ static void LoadHornPos() {
     }
 }
 
-// ---- ajustes de la rueda (v2.2): se guardan en files/VHudRadio/VHudRadio.ini (v2.16) ----
+// ---- ajustes de la rueda (v2.2): se guardan en data/configs/VHudRadio.ini (v2.36) ----
 // [VHudRadio] fondo=30 (0..100, oscuridad del fondo) tamano=36 (25..45, % de H)
 // anillo=0,210,255 (color del anillo de seleccion, 0..255)
 // texto=255,255,255 (color del texto del centro de la rueda, 0..255) (v2.6)
@@ -643,9 +643,9 @@ static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) 
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
 static bool g_settings = false;   // v2.2: panel de personalizacion abierto
 static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
-static std::string CfgPath() { return g_gameFilesDir + "/VHudRadio/VHudRadio.ini"; }  // v2.16: el .ini vive en la carpeta VHudRadio, junto a radio/
+static std::string CfgPath() { return g_gameDataDir + "/configs/VHudRadio.ini"; }  // v2.36: el .ini vuelve a data/configs (v2.3-2.15); la carpeta VHudRadio ya no existe
 static void SaveCfg() {
-    mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);
+    mkdir((g_gameDataDir + "/configs").c_str(), 0777);
     FILE* f = fopen(CfgPath().c_str(), "w");
     if (!f) return;
     fprintf(f, "[VHudRadio]\n");
@@ -674,8 +674,8 @@ static void LoadCfg() {
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
-        // v2.16: antes estaba en data/configs (v2.3-2.15) - mudarlo si existe ahi
-        std::string old = g_gameDataDir + "/configs/VHudRadio.ini";
+        // v2.36: antes estaba en files/VHudRadio (v2.16-2.35) - mudarlo si existe ahi
+        std::string old = g_gameFilesDir + "/VHudRadio/VHudRadio.ini";
         f = fopen(old.c_str(), "r");
         if (f) { fromOld = true; Log("  ajustes: mudando el .ini viejo de %s", old.c_str()); }
     }
@@ -950,8 +950,9 @@ static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, 
 // v2.29: la carpeta ya es opcional: si el PNG no esta en la carpeta, se usa el
 // incrustado en el .so (icons_embedded.h). La carpeta sigue mandando si existe.
 static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, int set) {
-    std::string dir = g_gameFilesDir + "/VHudRadio/" + subdir;
-    { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_gameFilesDir + "/vhud/" + subdir; }
+    // v2.36: la carpeta VHudRadio/ ya no existe; los iconos se buscan en
+    // las carpetas vhud/ viejas y si no, van los incrustados en el .so.
+    std::string dir = g_gameFilesDir + "/vhud/" + subdir;
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/" + subdir; }
     Log("carpeta de iconos %s: %s/ (si falta, va el incrustado en el .so)", etiqueta, dir.c_str());
     int ok = 0;
@@ -2239,7 +2240,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                 if (InHornRegion(g_touchX, g_touchY, (float)w, (float)h)) {
                     static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
-                    if (now - lastHornTap < std::chrono::milliseconds(500)) {
+                    if (now - lastHornTap < std::chrono::milliseconds(500) && now - lastHornTap > std::chrono::milliseconds(80)) {
                         if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
                         else if (g_hasRadio) ToggleWheel("doble claxon");
                         else LogBlocked();
@@ -2323,7 +2324,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         }
         if (!g_paused && hornDown && !prevHornDown) {
             auto now = std::chrono::steady_clock::now();
-            if (now - lastHornTap < std::chrono::milliseconds(500)) {
+            if (now - lastHornTap < std::chrono::milliseconds(500) && now - lastHornTap > std::chrono::milliseconds(80)) {
                 if (g_preview) { g_preview = false; g_open = false; g_settings = true; Log("vista previa cerrada (claxon)"); }
                 else if (!g_settings && g_hasRadio) ToggleWheel("doble claxon (boton 7)");
                 else if (!g_settings) LogBlocked();
@@ -2380,12 +2381,14 @@ extern "C" void OnModLoad() {
     g_gameDataDir = files;
     if (g_gameDataDir.size() > 6 && g_gameDataDir.compare(g_gameDataDir.size()-6, 6, "/files") == 0)
         g_gameDataDir.resize(g_gameDataDir.size()-6);
-    mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);  // v2.26: la carpeta debe existir antes de crear el log dentro de ella
-    g_logPath = files + "/VHudRadio/VHudRadioLog.txt";  // v2.26: el log vive junto al .ini, en VHudRadio/
+    // v2.36: la carpeta VHudRadio ya no se crea; el log va directo en la
+    // carpeta del juego (com.rockstargames.gtasa).
+    g_logPath = g_gameDataDir + "/VHudRadioLog.txt";  // v2.36: el log vive en la carpeta del juego, no en VHudRadio/
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
     g_vhudDir = "/storage/emulated/0/vhud";  // v2.27: solo se LEE como respaldo (iconos y horn_pos.txt); ya no se crea la carpeta
-    // v2.27: las carpetas viejas vhud/ ya no se crean (solo VHudRadio/); si alguien aun tiene iconos ahi, se siguen leyendo
-    mkdir((g_gameFilesDir + "/VHudRadio/radio").c_str(), 0777);  // (la carpeta VHudRadio ya se creo antes del log)
+    // v2.36: la carpeta VHudRadio/radio/ ya no se crea (los iconos van
+    // incrustados en el .so); las carpetas vhud/ viejas se siguen leyendo
+    // como respaldo si existen, pero tampoco se crean.
     LoadCfg();
     LoadHornPos();
     Log("  centro del claxon: (%.3f, %.3f)", g_hornCx, g_hornCy);
