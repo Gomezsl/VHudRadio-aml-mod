@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.20.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.21.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,18 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.21: DESPLAZAMIENTO ESTILO ARCX (SOLO DENTRO DEL PANEL + INERCIA)
+// - La v2.20 no comprobaba donde empezaba el arrastre y un arrastre vertical
+//   en el juego (fuera del panel) tambien desplazaba el panel. Ahora, como
+//   el menu de ARCX (ListView), el desplazamiento solo responde a toques
+//   DENTRO del panel (inView al pulsar) y sigue al dedo desde donde se pulso
+//   (scroll = scroll al pulsar - dy), con inercia al soltar (la velocidad se
+//   multiplica x0.93 por frame, como ARCX). La direccion sigue como en la
+//   v2.20: vertical = desplaza, horizontal = deslizador (que guarda su valor
+//   al pulsar y lo restaura si el arrastre acaba siendo desplazamiento).
+// - Aviso "Desliza para ver mas" (como ARCX, en el idioma elegido) en la
+//   parte inferior del panel cuando el contenido no cabe y queda mas abajo;
+//   al empezar a desplazar se quita para no tapar los ajustes.
 // v2.20: DESPLAZAMIENTO POR DIRECCION + TAMANO POR DEFECTO MEDIANO OTRA VEZ
 // - La v2.19 solo desplazaba si el arrastre empezaba en el fondo, pero casi
 //   todo el panel son deslizadores ("las barras") y se movian en vez de
@@ -390,9 +402,9 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.20.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.21.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.20.0-beta"
+#define VHUDRADIO_VERSION "2.21.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al juego ----
 static std::string g_logPath;
@@ -467,14 +479,14 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 enum LangId { L_ES = 0, L_EN, L_ID, L_PT, L_FR, L_DE, L_COUNT };
 static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indonesia", "Portugues (BR)", "Francais", "Deutsch" };
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
-enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_COUNT };
+enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_COUNT };
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en VHudRadio/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo" },
-    { "Customize radio wheel", "Background, size and colors. Saved in VHudRadio/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di VHudRadio/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em VHudRadio/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans VHudRadio/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in VHudRadio/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en VHudRadio/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más" },
+    { "Customize radio wheel", "Background, size and colors. Saved in VHudRadio/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di VHudRadio/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em VHudRadio/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans VHudRadio/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in VHudRadio/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -1149,25 +1161,46 @@ static void DrawSettings(float W, float H) {
         panelMoved = true; g_cfgDirty = true;
     }
     if (ImGui::IsItemDeactivated()) { if (panelMoved) { SaveCfg(); panelMoved = false; } }
-    // v2.20: desplazamiento tactil por direccion - si el arrastre es mas
-    // vertical que horizontal, desplaza el panel; si no, es un deslizador.
-    // La v2.19 solo desplazaba si el arrastre empezaba en el fondo, pero
-    // casi todo el panel son deslizadores y se movian en vez de bajar (solo
-    // se podia por la barra de la esquina, que es tediosa). Con el selector
-    // de color abierto no hay desplazamiento por direccion (sus arrastres
-    // son en vertical y son del color). Tampoco si el arrastre es el titulo
-    // (que mueve el panel) o la esquina (que lo redimensiona).
+    // v2.21: desplazamiento tactil estilo ARCX - el menu de ARCX (ListView)
+    // solo responde a toques DENTRO de su area (inView al pulsar) y el
+    // desplazamiento sigue al dedo desde donde se pulso (scroll = scroll al
+    // pulsar - dy), con inercia al soltar (velocidad x0.93 por frame). La
+    // v2.20 no comprobaba donde empezaba el arrastre y un arrastre vertical
+    // en el juego (fuera del panel) tambien desplazaba el panel. La
+    // direccion sigue como en la v2.20: vertical = desplaza, horizontal =
+    // deslizador. Con el selector de color abierto no hay desplazamiento por
+    // direccion (sus arrastres son en vertical y son del color). Tampoco si
+    // el arrastre es el titulo (que mueve el panel) o la esquina (que lo
+    // redimensiona).
     static bool panelScrolling = false; static bool scrollDecided = false; static ImVec2 scrollStart;
+    static bool scrollStartInPanel = false; static float scrollStartY = 0.0f; static float scrollVel = 0.0f;
     bool titleActive = ImGui::IsItemActive();  // el ultimo item es el titulo
-    if (io.MouseClicked[0]) { scrollStart = io.MousePos; scrollDecided = false; panelScrolling = false; g_panelScrolling = false; }
+    if (io.MouseClicked[0]) {
+        scrollStart = io.MousePos; scrollDecided = false; panelScrolling = false; g_panelScrolling = false; scrollVel = 0.0f;
+        scrollStartY = ImGui::GetScrollY();
+        ImVec2 wp0 = ImGui::GetWindowPos(); ImVec2 ws0 = ImGui::GetWindowSize();
+        scrollStartInPanel = io.MousePos.x >= wp0.x && io.MousePos.x <= wp0.x + ws0.x && io.MousePos.y >= wp0.y && io.MousePos.y <= wp0.y + ws0.y;
+    }
     if (io.MouseDown[0] && !scrollDecided && !titleActive && !panelResizing && g_pickTarget < 0) {
-        float dx = io.MousePos.x - scrollStart.x, dy = io.MousePos.y - scrollStart.y;
-        if (fabsf(dy) > H*0.02f && fabsf(dy) > fabsf(dx)) { panelScrolling = true; scrollDecided = true; g_panelScrolling = true; }
-        else if (fabsf(dx) > H*0.02f) { scrollDecided = true; }
+        if (!scrollStartInPanel) { scrollDecided = true; }  // el arrastre empezo fuera del panel: nunca desplaza
+        else {
+            float dx = io.MousePos.x - scrollStart.x, dy = io.MousePos.y - scrollStart.y;
+            if (fabsf(dy) > H*0.02f && fabsf(dy) > fabsf(dx)) { panelScrolling = true; scrollDecided = true; g_panelScrolling = true; }
+            else if (fabsf(dx) > H*0.02f) { scrollDecided = true; }
+        }
     }
     if (!io.MouseDown[0]) { panelScrolling = false; scrollDecided = false; g_panelScrolling = false; }
     if (panelScrolling) {
-        ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+        ImGui::SetScrollY(scrollStartY - (io.MousePos.y - scrollStart.y));  // sigue al dedo desde donde se pulso (como ARCX)
+        scrollVel = -io.MouseDelta.y;  // velocidad para la inercia al soltar
+    }
+    // v2.21: inercia al soltar (como ARCX) - al soltar el dedo el contenido
+    // sigue deslizandose y frena poco a poco (x0.93 por frame)
+    if (!io.MouseDown[0] && fabsf(scrollVel) > 0.4f) {
+        ImGui::SetScrollY(ImGui::GetScrollY() + scrollVel);
+        scrollVel *= 0.93f;
+    } else if (!io.MouseDown[0]) {
+        scrollVel = 0.0f;
     }
     dl->AddText(ImVec2(titlePos.x + (titleW - ts.x) * 0.5f, titlePos.y), ImGui::GetColorU32(titleCol), title);
     ImVec2 lp = ImGui::GetCursorScreenPos();
@@ -1328,6 +1361,15 @@ static void DrawSettings(float W, float H) {
             const float o = e * (0.30f + 0.28f * (float)k);
             fg->AddLine(ImVec2(gp.x + gripS - H*0.006f, gp.y + gripS - o), ImVec2(gp.x + gripS - o, gp.y + gripS - H*0.006f), gc, H*0.003f);
         }
+    }
+    // v2.21: "Desliza para ver mas" (como ARCX) - si el contenido no cabe y
+    // queda mas abajo, se avisa en la parte inferior del panel (solo arriba;
+    // al empezar a desplazar se quita para no tapar los ajustes)
+    if (ImGui::GetScrollMaxY() > 0.0f && ImGui::GetScrollY() < 1.0f) {
+        ImVec2 ts2 = ImGui::CalcTextSize(S(STR_DESLIZA));
+        float hx = wp.x + (ws.x - ts2.x) * 0.5f;
+        float hy = wp.y + ws.y - ts2.y - H*0.012f;
+        fg->AddText(ImVec2(hx, hy), IM_COL32(150, 190, 255, 220), S(STR_DESLIZA));
     }
     ImGui::End();
     if (g_fontUI) ImGui::PopFont();
