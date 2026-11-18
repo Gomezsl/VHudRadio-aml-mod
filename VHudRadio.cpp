@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.35.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.41.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.35.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.41.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.35.0-beta"
+#define VHUDRADIO_VERSION "2.41.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -973,17 +973,19 @@ static void LoadRadioTextures() {
     // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
     // luego en /storage/emulated/0/vhud/radio/.
     LoadIconSet(g_tex, "radio", "normales", 0);
-    // v2.28: iconos a color en VHudRadio/radio_color/ (mismos respaldos); si a
-    // alguno le falta, se usa el normal de esa emisora para que la rueda no se rompa.
-    LoadIconSet(g_texColor, "radio_color", "a color", 1);
-    for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
+    // v2.41 (PRUEBA): iconos a color DESACTIVADOS. Daniel sospecha que el
+    // interruptor de iconos a color (v2.28) o las imagenes incrustadas (v2.29)
+    // traban la musica. Aqui solo se quita el juego a color: no se carga
+    // radio_color y siempre se dibujan los iconos normales (blancos). Si la
+    // musica suena limpia, el problema eran los iconos a color.
+    // LoadIconSet(g_texColor, "radio_color", "a color", 1);
+    // for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
     int ok = 0; for (int i = 1; i <= 13; i++) if (g_tex[i]) ok++;
     if (ok == 0) Log("  !! sin iconos ni en carpeta ni incrustados en el .so (no deberia pasar)");
 }
-// v2.28: el icono que se dibuja segun el interruptor (a color si esta activo y existe)
+// v2.41 (PRUEBA): siempre el icono normal; el juego a color no se carga.
 static GLuint IconTex(int i) {
     if (i < 0 || i > 13) return 0;
-    if (g_cfg.iconosColor && g_texColor[i]) return g_texColor[i];
     return g_tex[i];
 }
 
@@ -1884,9 +1886,8 @@ static void DrawSettings(float W, float H) {
         if (PanelSwitch(S(STR_BTN_LOCK), &bloq, H)) { g_cfg.btnBloq = bloq ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
     }
     {
-        // v2.28: interruptor de iconos a color (carpeta radio_color/)
-        bool color = g_cfg.iconosColor != 0;
-        if (PanelSwitch(S(STR_ICONOSCOLOR), &color, H)) { g_cfg.iconosColor = color ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("iconos de las emisoras: %s", g_cfg.iconosColor ? "a color" : "normales"); }
+        // v2.41 (PRUEBA): interruptor de iconos a color oculto (el juego a color
+        // no se carga en esta version de prueba).
         bool lenta = g_cfg.camaraLenta != 0;
         if (PanelSwitch(S(STR_CAMARALENTA), &lenta, H)) { g_cfg.camaraLenta = lenta ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("camara lenta: %s", g_cfg.camaraLenta ? "activada" : "apagada"); }
         bool btnVis = g_cfg.botonVisible != 0;
