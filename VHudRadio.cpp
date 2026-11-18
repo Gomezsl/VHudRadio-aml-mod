@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.38.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.39.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.38.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.39.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.38.0-beta"
+#define VHUDRADIO_VERSION "2.39.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -1289,6 +1289,9 @@ static bool DrawButtonGL(float W, float H) {
     if (g_glBtnUseVAO) glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFB);
     GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    GLint prevBlendSrc = 0, prevBlendDst = 0;  // v2.39: la funcion de mezcla tambien se guarda
+    glGetIntegerv(GL_BLEND_SRC_RGB, &prevBlendSrc);
+    glGetIntegerv(GL_BLEND_DST_RGB, &prevBlendDst);
     GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
     GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
     GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
@@ -1349,6 +1352,7 @@ static bool DrawButtonGL(float W, float H) {
     glActiveTexture((GLenum)prevActive);
     glUseProgram((GLuint)prevProg);
     if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFunc((GLenum)prevBlendSrc, (GLenum)prevBlendDst);  // v2.39: restaurar la funcion de mezcla del juego
     if (prevScissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     if (prevDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     glViewport(vp[0], vp[1], vp[2], vp[3]);
@@ -2336,22 +2340,11 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         prevHornDown = hornDown;
     }
     if (!g_inVehicle) { g_open = false; g_preview = false; g_settings = false; g_btnDrag = false; g_centerTap = false; }  // v2.2: fuera del coche se cierra todo
-    // v2.30: si no hay nada que dibujar (rueda cerrada, panel cerrado, boton
-    // oculto), saltar el frame de ImGui: es el trabajo que la rueda hace en
-    // CADA frame y el que le quita CPU al decodificador de MP3 del mod de
-    // User Tracks. Con el boton visible se dibuja como siempre.
-    bool onlyButton = g_inVehicle && !g_paused && !g_open && !g_preview && !g_settings && g_hasRadio && g_cfg.botonVisible;
-    if (onlyButton && g_inited) {
-        // v2.33: solo el boton -> OpenGL directo, sin cuadro ImGui.
-        if (!DrawButtonGL((float)w, (float)h)) {
-            // Si el dibujo GL fallo, volver a ImGui para que el boton se vea.
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
-            if (g_inVehicle && !g_paused) DrawWheel((float)w, (float)h);
-            ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        }
-        return;
-    }
+    // v2.39: el boton GL ya no se usa. El boton flotante vuelve a dibujarse
+    // con ImGui (como en la v2.32): el boton GL (v2.33) era el unico codigo
+    // OpenGL directo de la rueda y el cierre es en libgui (cola de buffers
+    // de graficos), asi que es el sospechoso. Ademas no arreglo la musica.
+    // (DrawButtonGL queda sin usar por ahora.)
     bool needDraw = (g_inVehicle && !g_paused && (g_open || g_preview || g_cfg.botonVisible)) || (g_settings && !g_paused);
     if (needDraw) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);

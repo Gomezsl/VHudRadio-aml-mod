@@ -1,4 +1,4 @@
-# VHud Radio Wheel 2.38.0-beta
+# VHud Radio Wheel 2.39.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
@@ -70,6 +70,11 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   files/VHudRadio/VHudRadio.ini y el log a files/VHudRadio/VHudRadioLog.txt
   (la v2.36 se cerraba; el cierre era en libgui.so, no en el mod, pero la
   v2.35 no se cerraba). Vuelven los clics: no era el sonido.
+- v2.39: el boton flotante vuelve a dibujarse con ImGui (como en la v2.32).
+  El diff 2.35-2.36 solo movio archivos y no puede causar el cierre en
+  libgui.so; el sospechoso es el boton GL (v2.33), el unico codigo OpenGL
+  directo, que ademas no arreglo la musica. Tambien se restaura la funcion
+  de mezcla (glBlendFunc) que el boton GL no devolvia.
 - Rueda de 13 estaciones en el anillo (apagar la radio va arriba del anillo).
   Soltar sobre un segmento cambia la estación. Doble toque al claxon abre/cierra.
   Tocar el CENTRO de la rueda (el nombre de la estación) y soltar abre el
