@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.39.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.40.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.39.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.40.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.39.0-beta"
+#define VHUDRADIO_VERSION "2.40.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -540,9 +540,6 @@ static void SoundInit() {
     Log("  sonido: OpenSL ES listo");
 }
 static void PlayClick(bool hi) {
-    // v2.38: vuelven los clics. La v2.37 los quito pensando que el segundo
-    // motor OpenSL ES era el problema, pero el juego se cerro igual: no era
-    // el sonido. (Daniel: no andar eliminando cosas.)
     SoundInit();
     if (!g_soundOk || !g_slQueue) return;
     (*g_slQueue)->Clear(g_slQueue);
@@ -646,7 +643,7 @@ static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) 
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
 static bool g_settings = false;   // v2.2: panel de personalizacion abierto
 static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
-static std::string CfgPath() { return g_gameFilesDir + "/VHudRadio/VHudRadio.ini"; }  // v2.38: vuelve a files/VHudRadio (v2.35); la v2.36 se cerraba
+static std::string CfgPath() { return g_gameFilesDir + "/VHudRadio/VHudRadio.ini"; }  // v2.16: el .ini vive en la carpeta VHudRadio, junto a radio/
 static void SaveCfg() {
     mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);
     FILE* f = fopen(CfgPath().c_str(), "w");
@@ -677,7 +674,7 @@ static void LoadCfg() {
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
-        // v2.38: el .ini de la v2.36/v2.37 quedo en data/configs - mudarlo de vuelta si existe ahi
+        // v2.16: antes estaba en data/configs (v2.3-2.15) - mudarlo si existe ahi
         std::string old = g_gameDataDir + "/configs/VHudRadio.ini";
         f = fopen(old.c_str(), "r");
         if (f) { fromOld = true; Log("  ajustes: mudando el .ini viejo de %s", old.c_str()); }
@@ -1289,9 +1286,6 @@ static bool DrawButtonGL(float W, float H) {
     if (g_glBtnUseVAO) glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFB);
     GLboolean prevBlend = glIsEnabled(GL_BLEND);
-    GLint prevBlendSrc = 0, prevBlendDst = 0;  // v2.39: la funcion de mezcla tambien se guarda
-    glGetIntegerv(GL_BLEND_SRC_RGB, &prevBlendSrc);
-    glGetIntegerv(GL_BLEND_DST_RGB, &prevBlendDst);
     GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
     GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
     GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
@@ -1352,7 +1346,6 @@ static bool DrawButtonGL(float W, float H) {
     glActiveTexture((GLenum)prevActive);
     glUseProgram((GLuint)prevProg);
     if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-    glBlendFunc((GLenum)prevBlendSrc, (GLenum)prevBlendDst);  // v2.39: restaurar la funcion de mezcla del juego
     if (prevScissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     if (prevDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     glViewport(vp[0], vp[1], vp[2], vp[3]);
@@ -2340,11 +2333,22 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         prevHornDown = hornDown;
     }
     if (!g_inVehicle) { g_open = false; g_preview = false; g_settings = false; g_btnDrag = false; g_centerTap = false; }  // v2.2: fuera del coche se cierra todo
-    // v2.39: el boton GL ya no se usa. El boton flotante vuelve a dibujarse
-    // con ImGui (como en la v2.32): el boton GL (v2.33) era el unico codigo
-    // OpenGL directo de la rueda y el cierre es en libgui (cola de buffers
-    // de graficos), asi que es el sospechoso. Ademas no arreglo la musica.
-    // (DrawButtonGL queda sin usar por ahora.)
+    // v2.30: si no hay nada que dibujar (rueda cerrada, panel cerrado, boton
+    // oculto), saltar el frame de ImGui: es el trabajo que la rueda hace en
+    // CADA frame y el que le quita CPU al decodificador de MP3 del mod de
+    // User Tracks. Con el boton visible se dibuja como siempre.
+    bool onlyButton = g_inVehicle && !g_paused && !g_open && !g_preview && !g_settings && g_hasRadio && g_cfg.botonVisible;
+    if (onlyButton && g_inited) {
+        // v2.33: solo el boton -> OpenGL directo, sin cuadro ImGui.
+        if (!DrawButtonGL((float)w, (float)h)) {
+            // Si el dibujo GL fallo, volver a ImGui para que el boton se vea.
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
+            if (g_inVehicle && !g_paused) DrawWheel((float)w, (float)h);
+            ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        }
+        return;
+    }
     bool needDraw = (g_inVehicle && !g_paused && (g_open || g_preview || g_cfg.botonVisible)) || (g_settings && !g_paused);
     if (needDraw) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -2376,12 +2380,11 @@ extern "C" void OnModLoad() {
     g_gameDataDir = files;
     if (g_gameDataDir.size() > 6 && g_gameDataDir.compare(g_gameDataDir.size()-6, 6, "/files") == 0)
         g_gameDataDir.resize(g_gameDataDir.size()-6);
-    mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);  // v2.38: vuelve a crearse (v2.35); la carpeta debe existir antes del log
-    g_logPath = files + "/VHudRadio/VHudRadioLog.txt";  // v2.38: el log vuelve junto al .ini, en VHudRadio/
+    mkdir((g_gameFilesDir + "/VHudRadio").c_str(), 0777);  // v2.26: la carpeta debe existir antes de crear el log dentro de ella
+    g_logPath = files + "/VHudRadio/VHudRadioLog.txt";  // v2.26: el log vive junto al .ini, en VHudRadio/
     { FILE* f = fopen(g_logPath.c_str(), "w"); if (f) { fprintf(f, "# VHudRadioLog - VHud Radio Wheel %s\n", VHUDRADIO_VERSION); fclose(f); } }
     g_vhudDir = "/storage/emulated/0/vhud";  // v2.27: solo se LEE como respaldo (iconos y horn_pos.txt); ya no se crea la carpeta
-    // v2.38: VHudRadio/radio/ vuelve a crearse (v2.35); las carpetas vhud/
-    // viejas se siguen leyendo como respaldo si existen, pero no se crean.
+    // v2.27: las carpetas viejas vhud/ ya no se crean (solo VHudRadio/); si alguien aun tiene iconos ahi, se siguen leyendo
     mkdir((g_gameFilesDir + "/VHudRadio/radio").c_str(), 0777);  // (la carpeta VHudRadio ya se creo antes del log)
     LoadCfg();
     LoadHornPos();
