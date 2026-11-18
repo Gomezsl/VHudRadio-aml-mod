@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.28.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.29.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -10,6 +10,13 @@
 // Simbolos de radio: VERIFICADOS por VHudRadioProbe 1.0.0 en el telefono de Daniel
 // (VHudRadioProbe.txt, 2026-11-16, 18/23 ok): TODOS los candidatos moviles resolvieron,
 // las variantes de PC dieron FALTA (como se esperaba).
+// v2.29: ICONOS INCRUSTADOS EN EL .SO (YA NO HACE FALTA LA CARPETA)
+// - Los 28 PNG (14 normales + 14 a color) van dentro del .so en base64
+//   (icons_embedded.h, generado por script). Al arrancar se cargan de
+//   memoria con stb_image; la carpeta (radio/ o radio_color/) ya es
+//   opcional: solo sirve para reemplazar un icono por uno propio. Si el
+//   PNG no esta en la carpeta, se usa el incrustado. El log dice de donde
+//   salio cada icono ("archivo" o "en el .so"). El .so crece ~0.5 MB.
 // v2.28: DOS JUEGOS DE ICONOS (NORMALES Y A COLOR) CON INTERRUPTOR
 // - Las emisoras tienen dos versiones: las normales (blancas, de radio/) y
 //   las de color (de radio_color/). Un interruptor en el panel ("Iconos de las
@@ -471,10 +478,11 @@
 #define STBI_NO_SIMD
 #define STBI_ONLY_PNG
 #include "stb_image.h"
+#include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.28.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.29.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.28.0-beta"
+#define VHUDRADIO_VERSION "2.29.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -831,16 +839,30 @@ static void* ResolveMenuManager(void* sym) {
 static GLuint g_tex[14] = {0};  // 1..13 + radio_current en [0] como marco
 static GLuint g_texColor[14] = {0};  // v2.28: a color (radio_color/), 1..13 + radio_current en [0]
 static bool g_texTried = false;
-static GLuint LoadPngToGl(const std::string& path) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return 0;
-    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 4*1024*1024) { fclose(f); return 0; }
-    std::vector<unsigned char> buf((size_t)len);
-    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
-    fclose(f);
+// v2.29: decodifica base64 (los PNG incrustados vienen en base64)
+static int B64Val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+static std::vector<unsigned char> B64Decode(const char* s) {
+    std::vector<unsigned char> out;
+    int val = 0, bits = 0;
+    for (const char* p = s; *p; p++) {
+        int v = B64Val(*p);
+        if (v < 0) continue;  // ignora '=' y saltos
+        val = (val << 6) | v;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out.push_back((unsigned char)((val >> bits) & 0xFF)); }
+    }
+    return out;
+}
+static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
     int w = 0, h = 0, ch = 0;
-    unsigned char* px = stbi_load_from_memory(buf.data(), (int)buf.size(), &w, &h, &ch, 4);
+    unsigned char* px = stbi_load_from_memory(buf, (int)len, &w, &h, &ch, 4);
     if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return 0; }
     GLint last = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &last);
     GLuint tex = 0; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
@@ -853,22 +875,50 @@ static GLuint LoadPngToGl(const std::string& path) {
     stbi_image_free(px);
     return glGetError() == GL_NO_ERROR ? tex : 0;
 }
+static GLuint LoadPngToGl(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > 4*1024*1024) { fclose(f); return 0; }
+    std::vector<unsigned char> buf((size_t)len);
+    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
+    fclose(f);
+    return LoadPngFromMemory(buf.data(), buf.size());
+}
+// v2.29: un icono: primero la carpeta (si el usuario puso su propio PNG, manda),
+// si no esta, el PNG incrustado en el .so. srcOut dice de donde salio.
+static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, const char** srcOut) {
+    GLuint t = LoadPngToGl(path);
+    if (t) { if (srcOut) *srcOut = "archivo"; return t; }
+    const char* b64 = EmbeddedIconB64(set, idx);
+    if (b64) {
+        std::vector<unsigned char> raw = B64Decode(b64);
+        if (!raw.empty()) t = LoadPngFromMemory(raw.data(), raw.size());
+    }
+    if (t) { if (srcOut) *srcOut = "en el .so"; return t; }
+    if (srcOut) *srcOut = "-";
+    return 0;
+}
 // v2.28: carga un juego de iconos (normales de radio/ o a color de radio_color/)
 // con los mismos respaldos de carpeta que antes.
-static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta) {
+// v2.29: la carpeta ya es opcional: si el PNG no esta en la carpeta, se usa el
+// incrustado en el .so (icons_embedded.h). La carpeta sigue mandando si existe.
+static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, int set) {
     std::string dir = g_gameFilesDir + "/VHudRadio/" + subdir;
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_gameFilesDir + "/vhud/" + subdir; }
     { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/" + subdir; }
-    Log("carpeta de iconos %s: %s/ (radio_1.png ... radio_13.png)", etiqueta, dir.c_str());
+    Log("carpeta de iconos %s: %s/ (si falta, va el incrustado en el .so)", etiqueta, dir.c_str());
     int ok = 0;
     for (int i = 1; i <= 13; i++) {
+        const char* src = "-";
         std::string p = dir + "/radio_" + std::to_string(i) + ".png";
-        tex[i] = LoadPngToGl(p);
+        tex[i] = LoadIconFileOrEmbedded(set, i, p, &src);
         if (tex[i]) ok++;
-        Log("  %s %s radio_%d.png", etiqueta, tex[i] ? "ok    " : "FALTA ", i);
+        Log("  %s %s radio_%d.png (%s)", etiqueta, tex[i] ? "ok    " : "FALTA ", i, src);
     }
-    tex[0] = LoadPngToGl(dir + "/radio_current.png");
-    Log("  %s %s radio_current.png", etiqueta, tex[0] ? "ok    " : "FALTA ");
+    const char* src0 = "-";
+    tex[0] = LoadIconFileOrEmbedded(set, 0, dir + "/radio_current.png", &src0);
+    Log("  %s %s radio_current.png (%s)", etiqueta, tex[0] ? "ok    " : "FALTA ", src0);
     Log("iconos %s cargados: %d/13 (+marco %s)", etiqueta, ok, tex[0] ? "si" : "no");
 }
 static void LoadRadioTextures() {
@@ -876,13 +926,13 @@ static void LoadRadioTextures() {
     // v2.16: iconos normales en files del juego (Android/data/.../files/VHudRadio/radio/);
     // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
     // luego en /storage/emulated/0/vhud/radio/.
-    LoadIconSet(g_tex, "radio", "normales");
+    LoadIconSet(g_tex, "radio", "normales", 0);
     // v2.28: iconos a color en VHudRadio/radio_color/ (mismos respaldos); si a
     // alguno le falta, se usa el normal de esa emisora para que la rueda no se rompa.
-    LoadIconSet(g_texColor, "radio_color", "a color");
+    LoadIconSet(g_texColor, "radio_color", "a color", 1);
     for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
     int ok = 0; for (int i = 1; i <= 13; i++) if (g_tex[i]) ok++;
-    if (ok == 0) Log("  !! sin iconos: copia VHudRadio/radio/ a files del juego o a /storage/emulated/0/vhud/ (ver README)");
+    if (ok == 0) Log("  !! sin iconos ni en carpeta ni incrustados en el .so (no deberia pasar)");
 }
 // v2.28: el icono que se dibuja segun el interruptor (a color si esta activo y existe)
 static GLuint IconTex(int i) {

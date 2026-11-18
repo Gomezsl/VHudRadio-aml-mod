@@ -1,11 +1,17 @@
-# VHud Radio Wheel 2.28.0-beta
+# VHud Radio Wheel 2.29.0-beta
 
 Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so).
 Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 
-- Lee los iconos de `Android/data/com.rockstargames.gtasa/files/VHudRadio/radio/radio_1.png` ...
-  `radio_13.png` (+ `radio_current.png`), sin importarlos ni incrustarlos. Si no están
-  ahí, los busca en `files/vhud/radio/` y luego en `/storage/emulated/0/vhud/radio/`.
+- Los iconos van INCRUSTADOS en el .so (no hace falta ninguna carpeta):
+  los 28 PNG (14 normales + 14 a color) están dentro del .so en base64 y se
+  cargan de memoria al arrancar. La carpeta `VHudRadio/radio/` (y
+  `VHudRadio/radio_color/` para los de color) ya es opcional: solo sirve
+  para reemplazar un icono por uno propio. Si el PNG está en la carpeta,
+  manda el de la carpeta; si no, se usa el incrustado. El log dice de dónde
+  salió cada icono ("archivo" o "en el .so"). Antes de la v2.29 los iconos
+  se leían solo de la carpeta (primero `files/VHudRadio/radio/`, luego
+  `files/vhud/radio/` y luego `/storage/emulated/0/vhud/radio/`).
 - Dos juegos de iconos de las emisoras (normales y a color), sin reemplazar
   archivos: los normales (blancos) viven en `VHudRadio/radio/` y los de color
   en `VHudRadio/radio_color/` (mismos nombres de archivo, mismos respaldos
@@ -122,7 +128,8 @@ Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
   [V-HUD](https://github.com/gennariarmando/v-hud), de Armando Gennari (_AG),
   bajo licencia MIT. El archivo LICENSE original de V-HUD va incluido en el
   paquete que se comparte, con su línea de Copyright intacta.
-- El juego de iconos a color (`VHudRadio/radio_color/`) es opcional y no va
-  incluido en el paquete que se comparte; cada quien pone ahí sus propios
-  iconos a color (radio_1.png ... radio_13.png + radio_current.png).
+- El juego de iconos a color (`VHudRadio/radio_color/`) es opcional: desde
+  la v2.29 también va incrustado en el .so, así que no hace falta copiarlo
+  aparte. Es el juego personal de Hunter09 (logos redondos a color); si se
+  comparte el mod, tener en cuenta que el .so ya los lleva dentro.
 - Los logos de las emisoras son de Rockstar Games (GTA San Andreas).
