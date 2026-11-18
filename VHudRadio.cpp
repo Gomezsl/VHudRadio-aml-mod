@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.42.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.43.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.42.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.43.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.42.0-beta"
+#define VHUDRADIO_VERSION "2.43.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -974,8 +974,11 @@ static void LoadRadioTextures() {
     // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
     // luego en /storage/emulated/0/vhud/radio/.
     LoadIconSet(g_tex, "radio", "normales", 0, 128);
-    // v2.42: iconos a color de vuelta pero a 64x64 (4x menos memoria que a
-    // 128) y SOLO si el .ini dice iconosColor=1. Con iconos blancos no se
+    // v2.43: el juego a color ya NO es el slotrad del TXD sino los mismos
+    // disenos blancos de V-HUD solo recoloreados (tintados). Daniel sospecha
+    // que la extraccion del TXD era lo que trababa la musica, no la
+    // resolucion. Siguen a 64x64 (4x menos memoria que a 128) y SOLO si el
+    // .ini dice iconosColor=1. Con iconos blancos no se
     // cargan ni se gastan memoria (carga perezosa); al activar el interruptor
     // en el panel se cargan en ese momento. La v2.41 probo que el juego a
     // color a 128 era lo que trababa la musica.
