@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.32.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.33.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -480,9 +480,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.32.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.33.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.32.0-beta"
+#define VHUDRADIO_VERSION "2.33.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -1095,6 +1095,168 @@ static bool FloatBtnHit(float x, float y, float W, float H) {
     if (x >= ip.x && x <= ip.x + bs && y >= ip.y && y <= ip.y + bs) return true;
     if (x >= lp.x && x <= lp.x + ls.x && y >= lp.y && y <= lp.y + ls.y) return true;
     return false;
+}
+
+// v2.33: boton flotante con OpenGL directo (sin ImGui) para no hacer un
+// cuadro ImGui cada cuadro solo por el boton. El decodificador MP3 de
+// SAUserTracks se quedaba sin CPU en el A14; ARCX no dibuja ImGui cuando
+// su menu esta cerrado. La rueda/panel/vista previa siguen con ImGui.
+struct GLBtnVert { float x, y, u, v, r, g, b, a; };
+static GLuint g_glBtnProg = 0, g_glBtnVBO = 0, g_glBtnWhite = 0;
+static bool g_glBtnTried = false, g_glBtnOk = false;
+static GLuint GLBtnCompile(GLenum type, const char* src) {
+    GLuint sh = glCreateShader(type);
+    glShaderSource(sh, 1, &src, nullptr);
+    glCompileShader(sh);
+    GLint ok = 0; glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char buf[512]; glGetShaderInfoLog(sh, sizeof(buf), nullptr, buf); Log("  !! boton GL: shader no compilo: %s", buf); glDeleteShader(sh); return 0; }
+    return sh;
+}
+static bool GLBtnInit() {
+    if (g_glBtnTried) return g_glBtnOk;
+    g_glBtnTried = true;
+    const char* vs = "attribute vec2 aPos; attribute vec2 aUV; attribute vec4 aColor;\n"
+        "varying vec2 vUV; varying vec4 vColor; uniform mat4 uProj;\n"
+        "void main() { gl_Position = uProj * vec4(aPos, 0.0, 1.0); vUV = aUV; vColor = aColor; }\n";
+    const char* fs = "precision mediump float; varying vec2 vUV; varying vec4 vColor;\n"
+        "uniform sampler2D uTex;\n"
+        "void main() { vec4 t = texture2D(uTex, vUV); gl_FragColor = vec4(vColor.rgb * t.rgb, vColor.a * t.a); }\n";
+    GLuint vsh = GLBtnCompile(GL_VERTEX_SHADER, vs);
+    GLuint fsh = GLBtnCompile(GL_FRAGMENT_SHADER, fs);
+    if (!vsh || !fsh) { if (vsh) glDeleteShader(vsh); if (fsh) glDeleteShader(fsh); return false; }
+    g_glBtnProg = glCreateProgram();
+    glAttachShader(g_glBtnProg, vsh); glAttachShader(g_glBtnProg, fsh);
+    glBindAttribLocation(g_glBtnProg, 0, "aPos");
+    glBindAttribLocation(g_glBtnProg, 1, "aUV");
+    glBindAttribLocation(g_glBtnProg, 2, "aColor");
+    glLinkProgram(g_glBtnProg);
+    GLint ok = 0; glGetProgramiv(g_glBtnProg, GL_LINK_STATUS, &ok);
+    glDeleteShader(vsh); glDeleteShader(fsh);
+    if (!ok) { char buf[512]; glGetProgramInfoLog(g_glBtnProg, sizeof(buf), nullptr, buf); Log("  !! boton GL: programa no enlazo: %s", buf); glDeleteProgram(g_glBtnProg); g_glBtnProg = 0; return false; }
+    glGenBuffers(1, &g_glBtnVBO);
+    unsigned char px[4] = {255, 255, 255, 255};
+    glGenTextures(1, &g_glBtnWhite);
+    glBindTexture(GL_TEXTURE_2D, g_glBtnWhite);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    g_glBtnOk = true;
+    Log("boton GL listo (programa %u)", (unsigned)g_glBtnProg);
+    return true;
+}
+// Dibuja el boton flotante con OpenGL directo. Devuelve false si no se pudo
+// (entonces el llamador usa ImGui como antes). W/H en pixeles.
+static bool DrawButtonGL(float W, float H) {
+    if (!GLBtnInit()) return false;
+    ImFont* font = g_fontTitle ? g_fontTitle : ImGui::GetFont();
+    if (!font) return false;
+    ImTextureID atlas = ImGui::GetIO().Fonts->TexID;
+    if (!atlas) return false;
+    GLuint atlasTex = (GLuint)(uintptr_t)atlas;
+    ImVec2 bp, lp, ls; float bs;
+    FloatBtnGeom(W, H, bp, lp, ls, bs);
+    float ns = H * 0.022f, ts = H * 0.018f;
+    int op = g_cfg.btnOpac * 255 / 100;
+    float opF = op / 255.0f;
+    std::vector<GLBtnVert> vBg, vTxt, vIco;
+    auto quadTo = [&](std::vector<GLBtnVert>& dst, float x0, float y0, float x1, float y1, float u0, float vv0, float u1, float v1, float r, float g, float b, float a) {
+        dst.push_back({x0, y0, u0, vv0, r, g, b, a});
+        dst.push_back({x1, y0, u1, vv0, r, g, b, a});
+        dst.push_back({x1, y1, u1, v1, r, g, b, a});
+        dst.push_back({x0, y0, u0, vv0, r, g, b, a});
+        dst.push_back({x1, y1, u1, v1, r, g, b, a});
+        dst.push_back({x0, y1, u0, v1, r, g, b, a});
+    };
+    // Fondo de la etiqueta (negro semitransparente, textura blanca 1x1).
+    quadTo(vBg, lp.x, lp.y, lp.x + ls.x, lp.y + ls.y, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 140.0f * opF / 255.0f);
+    // Texto: nombre y genero con los glifos del atlas de ImGui (UTF-8).
+    auto drawText = [&](const char* str, float x, float y, float size, float r, float g, float b, float a) {
+        float scale = size / font->FontSize;
+        float cx = x;
+        const char* p = str;
+        while (*p) {
+            unsigned int cp = 0;
+            int n = ImTextCharFromUtf8(&cp, p, nullptr);
+            if (n <= 0) break;
+            p += n;
+            const ImFontGlyph* gl = font->FindGlyph((ImWchar)cp);
+            if (!gl) continue;
+            float x0 = cx + gl->X0 * scale, y0 = y + gl->Y0 * scale;
+            float x1 = cx + gl->X1 * scale, y1 = y + gl->Y1 * scale;
+            quadTo(vTxt, x0, y0, x1, y1, gl->U0, gl->V0, gl->U1, gl->V1, r, g, b, a);
+            cx += gl->AdvanceX * scale;
+        }
+    };
+    drawText(kStationName[g_current], lp.x + H * 0.01f, lp.y + H * 0.008f, ns, 1.0f, 1.0f, 1.0f, opF);
+    drawText(Genre(g_current), lp.x + H * 0.01f, lp.y + H * 0.008f + ns, ts, 200.0f/255.0f, 225.0f/255.0f, 235.0f/255.0f, 230.0f * opF / 255.0f);
+    // Icono de la estacion.
+    GLuint it = IconTex(g_current);
+    if (it) quadTo(vIco, bp.x, bp.y, bp.x + bs, bp.y + bs, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, opF);
+    // Guardar estado GL del juego.
+    GLint prevProg = 0, prevTex = 0, prevArr = 0, prevElem = 0, prevActive = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArr);
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElem);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
+    GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+    // Proyeccion ortografica (pixeles -> NDC, Y hacia abajo).
+    float proj[16] = {0};
+    proj[0] = 2.0f / W; proj[5] = -2.0f / H; proj[10] = -1.0f; proj[12] = -1.0f; proj[13] = 1.0f; proj[15] = 1.0f;
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glActiveTexture(GL_TEXTURE0);
+    glUseProgram(g_glBtnProg);
+    GLint uProj = glGetUniformLocation(g_glBtnProg, "uProj");
+    GLint uTex = glGetUniformLocation(g_glBtnProg, "uTex");
+    glUniformMatrix4fv(uProj, 1, GL_FALSE, proj);
+    glUniform1i(uTex, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
+    glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)8);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)16);
+    auto drawVerts = [&](const std::vector<GLBtnVert>& verts, GLuint tex) {
+        if (verts.empty()) return;
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(GLBtnVert), verts.data(), GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)verts.size());
+    };
+    drawVerts(vBg, g_glBtnWhite);
+    drawVerts(vTxt, atlasTex);
+    drawVerts(vIco, it ? it : g_glBtnWhite);
+    // Circulo blanco alrededor del icono (linea).
+    {
+        const int SEG = 40;
+        std::vector<GLBtnVert> circ;
+        float cx = bp.x + bs / 2, cy = bp.y + bs / 2, rr = bs / 2;
+        for (int i = 0; i <= SEG; i++) {
+            float a = (float)i / SEG * 2.0f * 3.14159265f;
+            circ.push_back({cx + cosf(a) * rr, cy + sinf(a) * rr, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 200.0f * opF / 255.0f});
+        }
+        if (!circ.empty()) {
+            glBindTexture(GL_TEXTURE_2D, g_glBtnWhite);
+            glBufferData(GL_ARRAY_BUFFER, circ.size() * sizeof(GLBtnVert), circ.data(), GL_STREAM_DRAW);
+            glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)circ.size());
+        }
+    }
+    // Restaurar estado.
+    glDisableVertexAttribArray(0); glDisableVertexAttribArray(1); glDisableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevArr);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)prevElem);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+    glActiveTexture((GLenum)prevActive);
+    glUseProgram((GLuint)prevProg);
+    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (prevScissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
+    if (prevDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    return true;
 }
 
 static void DrawWheel(float W, float H) {
@@ -2082,6 +2244,18 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     // oculto), saltar el frame de ImGui: es el trabajo que la rueda hace en
     // CADA frame y el que le quita CPU al decodificador de MP3 del mod de
     // User Tracks. Con el boton visible se dibuja como siempre.
+    bool onlyButton = g_inVehicle && !g_paused && !g_open && !g_preview && !g_settings && g_hasRadio && g_cfg.botonVisible;
+    if (onlyButton && g_inited) {
+        // v2.33: solo el boton -> OpenGL directo, sin cuadro ImGui.
+        if (!DrawButtonGL((float)w, (float)h)) {
+            // Si el dibujo GL fallo, volver a ImGui para que el boton se vea.
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
+            if (g_inVehicle && !g_paused) DrawWheel((float)w, (float)h);
+            ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        }
+        return;
+    }
     bool needDraw = (g_inVehicle && !g_paused && (g_open || g_preview || g_cfg.botonVisible)) || (g_settings && !g_paused);
     if (needDraw) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
