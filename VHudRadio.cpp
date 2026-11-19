@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.51.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.52.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -73,6 +73,19 @@
 // - NO se toco la camara lenta (el desarmado probo que SAUserTracks nunca lee
 //   la escala de tiempo) ni el guardado de estado GL del boton (la 2.33 puso
 //   la pantalla en negro por no guardarlo).
+// v2.52: PARCHE DE SONIDO (de Claude, verificado contra el codigo)
+// - El reproductor OpenSL de los clics quedaba en PLAYING para siempre con
+//   la cola vacia (SoundInit lo ponia en PLAYING y nunca se paraba). Eso
+//   deja una pista activa en el mezclador de Android mientras SAUserTracks
+//   reproduce la suya, y el motor se creaba en el hilo de render justo al
+//   cambiar a User Track (el primer clic). Hipotesis sin medir, pero el
+//   codigo del parche es correcto y no quita funciones.
+// - Ahora el reproductor esta en PAUSED y solo pasa a PLAYING mientras suena
+//   el clic; todas las llamadas OpenSL van a un hilo aparte (SoundWorker).
+//   El clic suena igual. Si OpenSL falla, no pasa nada (g_soundOk = false).
+// - Ojo: la prueba limpia (5 mods, 2.47) tenia este reproductor y la musica
+//   sonaba bien, asi que por si solo no es la causa; solo pesaria con el
+//   telefono ya saturado (carga acumulada de los 44 mods). El telefono dira.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
 //   Ahora cada toque pertenece al panel (si cae dentro al bajar el dedo) o al
@@ -508,6 +521,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <thread>  // v2.52: hilo de sonido (SoundWorker)
+#include <condition_variable>  // v2.52: aviso de clic al hilo de sonido
 #include <string>
 #include <vector>
 #include "imgui.h"
@@ -519,9 +534,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.51.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.52.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.51.0-beta"
+#define VHUDRADIO_VERSION "2.52.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -535,7 +550,8 @@ static void Log(const char* fmt, ...) {
     if (!g_logPath.empty()) { FILE* f = fopen(g_logPath.c_str(), "a"); if (f) { fprintf(f, "%s\n", buf); fclose(f); } }
 }
 
-// ---- sonido (v2.2): clic corto generado con OpenSL ES (sin depender del juego) ----
+// ---- sonido (v2.2, v2.52): clic corto con OpenSL ES; desde la 2.52 el reproductor
+// queda en PAUSED cuando no suena y todo OpenSL corre en un hilo aparte (SoundWorker) ----
 static void* g_slHandle = nullptr;
 typedef SLresult (*SlCreateEngineFn)(SLObjectItf*, SLuint32, const SLEngineOption*, SLuint32, const SLInterfaceID*, const SLboolean*);
 static SlCreateEngineFn g_slCreateEngine = nullptr;
@@ -546,6 +562,8 @@ static SLBufferQueueItf g_slQueue = nullptr;
 static short g_clickLo[1600];
 static short g_clickHi[1600];
 static bool g_soundTried = false, g_soundOk = false;
+
+// Solo se llama desde el hilo de sonido (SoundWorker).
 static void SoundInit() {
     if (g_soundTried) return; g_soundTried = true;
     g_slHandle = dlopen("libOpenSLES.so", RTLD_NOW);
@@ -568,7 +586,8 @@ static void SoundInit() {
     if ((*g_slPlayer)->Realize(g_slPlayer, SL_BOOLEAN_FALSE) != SL_RESULT_SUCCESS) return;
     if ((*g_slPlayer)->GetInterface(g_slPlayer, SL_IID_PLAY, &g_slPlay) != SL_RESULT_SUCCESS) return;
     if ((*g_slPlayer)->GetInterface(g_slPlayer, SL_IID_BUFFERQUEUE, &g_slQueue) != SL_RESULT_SUCCESS) return;
-    if ((*g_slPlay)->SetPlayState(g_slPlay, SL_PLAYSTATE_PLAYING) != SL_RESULT_SUCCESS) return;
+    // CAMBIO: antes aqui se ponia SL_PLAYSTATE_PLAYING y se quedaba asi para siempre.
+    if ((*g_slPlay)->SetPlayState(g_slPlay, SL_PLAYSTATE_PAUSED) != SL_RESULT_SUCCESS) return;
     for (int i = 0; i < 1600; i++) {
         float t = (float)i / 22050.0f;
         float env = expf(-t * 60.0f);
@@ -576,13 +595,43 @@ static void SoundInit() {
         g_clickHi[i] = (short)(sinf(2.0f * 3.14159265f * 1318.0f * t) * env * 12000.0f);
     }
     g_soundOk = true;
-    Log("  sonido: OpenSL ES listo");
+    Log("  sonido: OpenSL ES listo (reproductor en pausa hasta el primer clic)");
 }
-static void PlayClick(bool hi) {
+
+static std::mutex g_sndMtx;
+static std::condition_variable g_sndCv;
+static int g_clickReq = 0;            // 0 = nada, 1 = clic grave, 2 = clic agudo (protegido por g_sndMtx)
+static bool g_sndStarted = false;     // solo se toca desde PlayClick (hilo del juego)
+
+static void SoundWorker() {
     SoundInit();
-    if (!g_soundOk || !g_slQueue) return;
-    (*g_slQueue)->Clear(g_slQueue);
-    (*g_slQueue)->Enqueue(g_slQueue, hi ? g_clickHi : g_clickLo, 1600 * 2);
+    std::unique_lock<std::mutex> lk(g_sndMtx);
+    for (;;) {
+        g_sndCv.wait(lk, [] { return g_clickReq != 0; });
+        while (g_clickReq != 0) {
+            int req = g_clickReq; g_clickReq = 0;
+            lk.unlock();
+            if (g_soundOk && g_slQueue && g_slPlay) {
+                (*g_slQueue)->Clear(g_slQueue);
+                (*g_slQueue)->Enqueue(g_slQueue, req == 2 ? g_clickHi : g_clickLo, 1600 * 2);
+                (*g_slPlay)->SetPlayState(g_slPlay, SL_PLAYSTATE_PLAYING);
+            }
+            lk.lock();
+            // El clic dura ~73 ms. Se espera 150 ms; si llega otro clic, se repite.
+            g_sndCv.wait_for(lk, std::chrono::milliseconds(150), [] { return g_clickReq != 0; });
+        }
+        // Sin clics pendientes: el reproductor vuelve a pausa (no queda activo en el mezclador).
+        lk.unlock();
+        if (g_soundOk && g_slPlay) (*g_slPlay)->SetPlayState(g_slPlay, SL_PLAYSTATE_PAUSED);
+        lk.lock();
+    }
+}
+
+// Se llama desde el hilo de render/toque: ya no toca OpenSL, solo avisa al hilo de sonido.
+static void PlayClick(bool hi) {
+    if (!g_sndStarted) { g_sndStarted = true; std::thread(SoundWorker).detach(); }
+    { std::lock_guard<std::mutex> lk(g_sndMtx); g_clickReq = hi ? 2 : 1; }
+    g_sndCv.notify_one();
 }
 
 // ---- estaciones 1..13 (VERIFIED por plugin-sdk eRadioID + GTAMods + v-hud) ----
