@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.50.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.51.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -57,6 +57,22 @@
 // - Panel mejor ordenado (como ARCX): mas espacio entre controles, controles
 //   mas altos al tacto y dos secciones con titulo (Rueda de radio / Boton
 //   flotante).
+// v2.51: OPTIMIZACIONES LIGERAS (del chat de Claude, verificadas)
+// - Logs de diagnostico apagados: cada Log() hace fopen/fclose sobre
+//   Android/data (ruta lenta) y en cada entrada a un vehiculo se escribian
+//   el volcado hex + el escaneo ptrCand (mincore por candidato) + rt/rid.
+//   Ya cumplieron su funcion: la entidad de audio (0x458/0x1B0) y el modelo
+//   en 0x32 se conocen, y el bloqueo usa la lista de modelos, no el escaneo.
+//   Se quitan: ptrCand, volcado hex, rt/rid, MenuSnapCheck, la escala leida
+//   cada segundo y el log por toque. Los logs importantes quedan (version,
+//   simbolos, iconos, cambios de estacion, panel, errores).
+// - eglQuerySurface cacheado: antes 2 llamadas por cuadro; ahora una vez y
+//   cada 120 cuadros (por si gira la pantalla).
+// - glGetUniformLocation cacheado en GLBtnInit: antes 2 por cuadro.
+// - imgui_demo.cpp quitado del Android.mk (no se usa).
+// - NO se toco la camara lenta (el desarmado probo que SAUserTracks nunca lee
+//   la escala de tiempo) ni el guardado de estado GL del boton (la 2.33 puso
+//   la pantalla en negro por no guardarlo).
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
 //   Ahora cada toque pertenece al panel (si cae dentro al bajar el dedo) o al
@@ -503,9 +519,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.50.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.51.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.50.0-beta"
+#define VHUDRADIO_VERSION "2.51.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -851,22 +867,7 @@ static void DrawFrontEnd_hook() {
 }
 // v2.6: diagnostico - registra que bytes del objeto CMenuManager cambian, para
 // encontrar el byte real de pausa en este telefono (el 0x5C no basto en la v2.5)
-static unsigned char g_menuSnap[96];
-static bool g_menuSnapInit = false;
-static int g_menuSnapTick = 0;
-static void MenuSnapCheck() {
-    if ((++g_menuSnapTick % 30) != 0) return;
-    const unsigned char* m = (const unsigned char*)g_menuManager;
-    if (!g_menuSnapInit) { memcpy(g_menuSnap, m, 96); g_menuSnapInit = true; return; }
-    char buf[1024]; int n = 0;
-    n += snprintf(buf + n, sizeof buf - (size_t)n, "menu: bytes que cambiaron:");
-    bool diff = false;
-    for (int i = 0; i < 96; i++) {
-        if (m[i] != g_menuSnap[i]) { diff = true; n += snprintf(buf + n, sizeof buf - (size_t)n, " [%02X]=%02X", i, m[i]); }
-    }
-    if (diff) Log("%s", buf);
-    memcpy(g_menuSnap, m, 96);
-}
+// v2.51: MenuSnapCheck eliminado (el byte de menu 0x5C ya se conoce; era solo diagnostico).
 // v2.4: FrontEndMenuManager es una REFERENCIA (puntero al objeto) en plugin-sdk:
 // GetSym devuelve la direccion del puntero, hay que desreferenciarla. Si el
 // simbolo ya es el objeto, sus primeros 8 bytes no son una direccion valida
@@ -1186,6 +1187,7 @@ static bool FloatBtnHit(float x, float y, float W, float H) {
 // su menu esta cerrado. La rueda/panel/vista previa siguen con ImGui.
 struct GLBtnVert { float x, y, u, v, r, g, b, a; };
 static GLuint g_glBtnProg = 0, g_glBtnVBO = 0, g_glBtnWhite = 0, g_glBtnVAO = 0;
+static GLint g_glBtnUProj = -1, g_glBtnUTex = -1;  // v2.51: ubicaciones de uniformes cacheadas (antes 2 glGetUniformLocation por cuadro)
 static bool g_glBtnTried = false, g_glBtnOk = false, g_glBtnUseVAO = false;
 #ifndef GL_VERTEX_ARRAY_BINDING
 #define GL_VERTEX_ARRAY_BINDING 0x85B5
@@ -1223,6 +1225,8 @@ static bool GLBtnInit() {
     GLint ok = 0; glGetProgramiv(g_glBtnProg, GL_LINK_STATUS, &ok);
     glDeleteShader(vsh); glDeleteShader(fsh);
     if (!ok) { char buf[512]; glGetProgramInfoLog(g_glBtnProg, sizeof(buf), nullptr, buf); Log("  !! boton GL: programa no enlazo: %s", buf); glDeleteProgram(g_glBtnProg); g_glBtnProg = 0; return false; }
+    g_glBtnUProj = glGetUniformLocation(g_glBtnProg, "uProj");  // v2.51: se cachean una vez al crear el programa
+    g_glBtnUTex = glGetUniformLocation(g_glBtnProg, "uTex");
     glGenBuffers(1, &g_glBtnVBO);
     // v2.34: VAO propio. Sin el, glVertexAttribPointer toca el VAO del
     // juego (ES 3.x) y la pantalla se pone en negro al subir a un auto.
@@ -1360,8 +1364,8 @@ static bool DrawButtonGL(float W, float H) {
     }
     glActiveTexture(GL_TEXTURE0);
     glUseProgram(g_glBtnProg);
-    GLint uProj = glGetUniformLocation(g_glBtnProg, "uProj");
-    GLint uTex = glGetUniformLocation(g_glBtnProg, "uTex");
+    GLint uProj = g_glBtnUProj;  // v2.51: cacheados en GLBtnInit
+    GLint uTex = g_glBtnUTex;
     glUniformMatrix4fv(uProj, 1, GL_FALSE, proj);
     glUniform1i(uTex, 0);
     glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
@@ -2046,12 +2050,7 @@ static void DrawSettings(float W, float H) {
     ImGui::PopStyleVar(4);
 }
 
-// v2.7: un puntero es creible si, quitandole el byte de etiqueta (0xb4...),
-// cae en el rango del heap del juego (0x100000000..0x1000000000000)
-static bool PlausiblePtr(uintptr_t v) {
-    uintptr_t t = v & 0x00FFFFFFFFFFFFFFULL;
-    return t > 0x100000000ULL && t < 0x1000000000000ULL;
-}
+// v2.51: PlausiblePtr eliminado (solo lo usaba el escaneo ptrCand, que ya se quito).
 // v2.9: true si la pagina de p esta mapeada (mincore devuelve 0); quita el
 // byte de etiqueta (0xb4...) antes de preguntar al kernel. Sin esto, leer un
 // valor que "parece" puntero pero no esta mapeado cierra el juego (v2.8).
@@ -2092,18 +2091,16 @@ static bool VehicleHasRadio(void* veh) {
     Log("  vehiculo: modelo=%u tieneRadio=%d", (unsigned)modelId, noRadio ? 0 : 1);
     return !noRadio;
 }
-// v2.7: vuelca n bytes en hexadecimal a un buffer (para el diagnostico)
-static void HexDump(char* out, size_t outSz, const void* p, int n) {
-    const unsigned char* b = (const unsigned char*)p;
-    int w = 0;
-    for (int i = 0; i < n && w < (int)outSz - 4; i++) w += snprintf(out + w, outSz - (size_t)w, "%02X ", b[i]);
-    if (w > 0 && w < (int)outSz) out[w - 1] = 0;  // quitar el ultimo espacio
-}
+// v2.51: HexDump eliminado (solo lo usaban el volcado del vehiculo y el escaneo ptrCand).
 static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_failed) return;
     EGLContext ctx = eglGetCurrentContext();
     if (ctx == EGL_NO_CONTEXT) return;
-    EGLint w = 0, h = 0; eglQuerySurface(dpy, surf, EGL_WIDTH, &w); eglQuerySurface(dpy, surf, EGL_HEIGHT, &h);
+    // v2.51: el tamano de pantalla se consulta una vez y cada 120 cuadros
+    // (antes 2 eglQuerySurface en cada cuadro)
+    static EGLint cw = 0, ch = 0; static int qTick = 0;
+    if (cw <= 0 || ch <= 0 || (++qTick % 120) == 0) { eglQuerySurface(dpy, surf, EGL_WIDTH, &cw); eglQuerySurface(dpy, surf, EGL_HEIGHT, &ch); }
+    EGLint w = cw, h = ch;
     if (w < 200 || h < 200) return;
     void* veh = FindPlayerVehicle ? FindPlayerVehicle(-1, false) : nullptr;
     bool wasInVehicle = g_inVehicle;
@@ -2119,66 +2116,15 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             if (!g_hasRadio) g_open = false;  // rueda cerrada si no tiene radio
         }
     }
-    // v2.9: diagnostico RadioType - la v2.8 SE CERRO al entrar a un auto de
-    // policia: el escaneo leyo un valor (0x23F800000) que "parecia" un puntero
-    // (cae en el rango 2^32..2^48) pero no esta mapeado, y al leerlo el juego
-    // hizo SIGSEGV. Ahora cada puntero se valida con mincore (IsMapped) ANTES
-    // de leerlo, y tambien la ventana que se vuelca. Rango mas amplio
-    // (0x100..0x500) y hasta 20 candidatos. Aun no bloquea nada.
+    // v2.51: el escaneo ptrCand y el volcado hex del vehiculo ya cumplieron
+    // su funcion (encontraron la entidad de audio y m_nModelIndex en 0x32);
+    // el bloqueo usa la lista de modelos, no el escaneo. Se quitan para no
+    // hacer mincore + fopen/fclose en cada entrada a un vehiculo.
     if (g_inVehicle && !wasInVehicle && veh) {
         Log("  vehiculo: %p estacion=%d", veh, g_current);
-        // v2.12: volcar los primeros 64 bytes del vehiculo para buscar
-        // m_nModelIndex (el modelo es estable por vehiculo: bici 481/509/510,
-        // tractor 531, patrulla 596-599). El bloqueo por rid fallo porque ese
-        // byte cambia; el modelo no cambia.
-        {
-            char hex[64*3+1];
-            HexDump(hex, sizeof hex, veh, 64);
-            Log("  vehiculo bytes[0x00..0x3F]=%s", hex);
-        }
-        int cands = 0;
-        for (int off = 0x100; off <= 0x500 && cands < 20; off += 8) {
-            void* cand = *(void**)((char*)veh + off);
-            if (!PlausiblePtr((uintptr_t)cand)) continue;
-            if (!IsMapped(cand)) continue;  // v2.9: la pagina debe estar mapeada
-            void* vt = *(void**)cand;
-            if (!PlausiblePtr((uintptr_t)vt)) continue;
-            if (!IsMapped((char*)cand + 0x70) || !IsMapped((char*)cand + 0xAF)) continue;
-            char hex[64*3+1];
-            HexDump(hex, sizeof hex, (char*)cand + 0x70, 64);
-            Log("  ptrCand(0x%X)=%p bytes[0x70..0xAF]=%s", off, cand, hex);
-            cands++;
-        }
-        if (cands == 0) Log("  ptrCand: ninguno en 0x100..0x500");
     }
-    // v2.12: diagnostico de audio SIN bloqueo - la v2.11 demostro que rid(0x9A)
-    // NO es estable (en un mismo carro dio 0, 2, 0, 0) y bloqueo carros y dejo
-    // pasar la bici, al reves de lo que se queria. Se registra rt/rid solo
-    // cuando cambian, para entender que es ese byte. El bloqueo por modelo
-    // (m_nModelIndex) se hara cuando se encuentre su offset (ver el volcado
-    // de los primeros bytes del vehiculo en el bloque de escaneo).
-    {
-        static void* lastVeh = nullptr;
-        static int lastRt = -999, lastRid = -999;
-        if (!g_inVehicle) { lastVeh = nullptr; lastRt = -999; lastRid = -999; }
-        else if (veh && veh != lastVeh) { lastVeh = veh; lastRt = -999; lastRid = -999; }
-        if (g_inVehicle && !wasInVehicle && veh) {
-            int aoffs[2] = {0x458, 0x1B0};
-            for (int i = 0; i < 2; i++) {
-                void* aud = *(void**)((char*)veh + aoffs[i]);
-                if (!PlausiblePtr((uintptr_t)aud)) continue;
-                if (!IsMapped(aud)) continue;
-                if (!IsMapped((char*)aud + 0x9A) || !IsMapped((char*)aud + 0x9B)) continue;
-                int rt = (int)*(signed char*)((char*)aud + 0x9B);
-                int rid = (int)*(signed char*)((char*)aud + 0x9A);
-                if (rt != lastRt || rid != lastRid) {
-                    Log("  audio(0x%X): rt(0x9B)=%d rid(0x9A)=%d", aoffs[i], rt, rid);
-                    lastRt = rt; lastRid = rid;
-                }
-                break;
-            }
-        }
-    }
+    // v2.51: diagnostico de audio (rt/rid) eliminado: el rid se probo
+    // inestable en la v2.11 y el bloqueo no lo usa (usa la lista de modelos).
     // v2.6: pausa por varias senales (el byte 0x5C solo no basto en la v2.5):
     // CMenuManager::m_bMenuActive, CTimer::m_UserPause / m_CodePause, y si
     // CMenuManager::DrawFrontEnd se llamo en este frame (menu dibujado)
@@ -2186,8 +2132,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     bool wasPaused = g_paused;
     g_paused = MenuActive() || (g_userPause && *g_userPause) || (g_codePause && *g_codePause) || fe;
     if (g_paused != wasPaused) { Log("menu de pausa: %s (byte=%d user=%d code=%d frontEnd=%d)", g_paused ? "abierto (UI oculta)" : "cerrado", MenuActive() ? 1 : 0, (g_userPause && *g_userPause) ? 1 : 0, (g_codePause && *g_codePause) ? 1 : 0, fe ? 1 : 0); if (g_menuCheck == 0) g_menuCheck = 1; }  // v2.4: el byte cambio: el offset es valido
-    // v2.6: diagnostico del menu - si los bytes del objeto cambian, registrar que offsets
-    if (g_menuManager) MenuSnapCheck();
     // v2.7: ralentizacion estilo GTA V - la v2.6 solo escribia los valores al
     // abrir/cerrar y el juego los borraba en el siguiente frame (el log decia
     // "activada" pero no se veia nada). Ahora se escriben EN CADA FRAME
@@ -2198,7 +2142,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         static bool slowOn = false;
         static float savedTimeScale = 1.0f, savedSlowScale = 0.3f;
         static bool savedSlowActive = false;
-        static int slowTick = 0;
         if (g_open && !slowOn && g_cfg.camaraLenta) {
             slowOn = true;
             if (g_timeScale) savedTimeScale = *g_timeScale;
@@ -2216,13 +2159,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             if (g_slowActive) *g_slowActive = true;
             if (g_slowScale) *g_slowScale = 0.3f;
             if (g_timeScale) *g_timeScale = 0.3f;
-            // diagnostico: cada segundo, leer lo que el juego tiene puesto
-            // (si la escala dice 1.00, el juego esta borrando nuestros valores)
-            if (++slowTick >= 60) {
-                slowTick = 0;
-                Log("ralentizacion: escala leida=%.2f activa=%d (deberia ser 0.30)", g_timeScale ? *g_timeScale : -1.0f, (g_slowActive && *g_slowActive) ? 1 : 0);
-            }
-        } else slowTick = 0;
+        }
     }
     if (!g_inited) {
         // v2.48: mientras carga la partida no iniciar ImGui ni cargar los
@@ -2299,8 +2236,6 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
             }
             // v1.2: doble toque al boton de claxon (zona derecha) abre/cierra la rueda
             if (g_inVehicle && !g_settings && !g_paused) {
-                static int tapLogN = 0;
-                if (tapLogN < 30 && g_touchX > (float)w*0.70f) { tapLogN++; Log("tap vehiculo #%d en (%.0f, %.0f)%s", tapLogN, g_touchX, g_touchY, InHornRegion(g_touchX, g_touchY, (float)w, (float)h) ? "  <- zona claxon" : ""); }
                 if (InHornRegion(g_touchX, g_touchY, (float)w, (float)h)) {
                     static auto lastHornTap = std::chrono::steady_clock::now() - std::chrono::seconds(5);
                     auto now = std::chrono::steady_clock::now();
