@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.48.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.49.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -47,6 +47,13 @@
 //   volvia a su mismo lugar. Ahora al soltar el dedo se olvida el valor
 //   guardado (savedPtr = nullptr), asi que solo se restaura durante el
 //   mismo arrastre que empezo en esa barra.
+// v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
+// - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
+//   Ahora cada toque pertenece al panel (si cae dentro al bajar el dedo) o al
+//   juego (si cae fuera): los del panel no llegan al juego (no se pulsa
+//   bajarse ni se mueve la camara detras del panel) y los movimientos del juego
+//   no llegan a ImGui (no se mueven las barras ni los botones solos). Ademas el
+//   primer cuadro del panel arranca con el raton limpio.
 // v2.48: BARRAS QUE SE MUEVEN SOLAS AL ABRIR EL PANEL + TEXTURAS AL CARGAR
 // - Al reabrir el panel se descarta el estado de arrastre/desplazamiento de
 //   la sesion anterior (savedPtr, g_panelScrolling, inercia del scroll): si
@@ -486,9 +493,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.48.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.49.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.48.0-beta"
+#define VHUDRADIO_VERSION "2.49.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -782,6 +789,8 @@ static bool g_ignoreNextUp = false; // v1.5: el toque que ABRIO la rueda no debe
 static float g_touchX = -1.0f, g_touchY = -1.0f;  // v2.18: ultima posicion de toque (io.MousePos llega con un frame de retraso y el bajar leia una posicion vieja)
 static bool g_panelScrolling = false;  // v2.20: el arrastre actual es un desplazamiento del panel (no un deslizador)
 static bool g_panelJustOpened = false;  // v2.48: el panel se abrio en este cuadro (para descartar el estado de arrastre viejo)
+static float g_panelRectX = -1.0f, g_panelRectY = -1.0f, g_panelRectW = 0.0f, g_panelRectH = 0.0f;  // v2.49: rect real del panel en pantalla (lo escribe DrawSettings)
+static bool g_touchForPanel = false;  // v2.49: el toque actual (dedo 0) pertenece al panel
 
 // v2.2: geometria de la rueda segun los ajustes (fondo/tamano/anillo)
 static float WheelR(float H) { return H * g_cfg.tamano / 100.0f; }
@@ -1051,6 +1060,22 @@ static uintptr_t (*Touch_orig)(int, int, int, int);
 static uintptr_t Touch_hook(int type, int idx, int x, int y) {
     bool down = (type == 2), up = (type == 1 || type == 4);
     if (idx == 0) {
+        // v2.49: si el panel esta abierto, cada toque pertenece al panel (si
+        // cae dentro de el al bajar el dedo) o al juego (si cae fuera). Los del
+        // panel van solo a ImGui (el juego no los ve: asi no se pulsan los
+        // botones del juego que estan detras ni se mueve la camara); los
+        // movimientos del juego no llegan a ImGui (asi no se mueven las barras
+        // ni los botones del panel solos). El dueno se decide al bajar y no
+        // cambia durante el arrastre, aunque el panel se cierre a mitad del toque.
+        if (down) {
+            bool inPanel = false;
+            if (g_settings && g_panelRectW > 0.0f) {
+                inPanel = (float)x >= g_panelRectX && (float)x <= g_panelRectX + g_panelRectW &&
+                          (float)y >= g_panelRectY && (float)y <= g_panelRectY + g_panelRectH;
+            }
+            g_touchForPanel = inPanel;
+        }
+        bool forPanel = g_touchForPanel;
         std::lock_guard<std::mutex> lk(g_inMtx);
         if (down) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({1, 0, 0}); }
         // v2.18: el soltar SIEMPRE se encola CON su posicion - la v2.17 lo
@@ -1061,8 +1086,12 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
         else if (up) { g_evs.push_back({0, (float)x, (float)y}); g_evs.push_back({2, 0, 0}); }
         // v2.4: sin esto el panel no funcionaba - los eventos de mover solo
         // llegaban a ImGui con la rueda abierta; con el panel abierto (rueda cerrada)
-        // ImGui recibia el toque de bajar pero nunca el de mover
-        else if (g_open || g_cap || g_settings || g_preview || g_btnDrag) { g_evs.push_back({0, (float)x, (float)y}); }
+        // ImGui recibia el toque de bajar pero nunca el de mover.
+        // v2.49: con el panel abierto el mover solo llega si el toque es del panel;
+        // si es del juego (fuera del panel) no se encola.
+        else if (forPanel || g_open || g_cap || g_preview || g_btnDrag) { g_evs.push_back({0, (float)x, (float)y}); }
+        if (up) g_touchForPanel = false;
+        if (forPanel) return 0;  // consumido por el panel: el juego no lo ve
     }
     return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
 }
@@ -1700,6 +1729,7 @@ static void DrawSettings(float W, float H) {
     ImVec2 ts = ImGui::CalcTextSize(title);
     float titleW = ImGui::GetContentRegionAvail().x;
     ImVec2 wp = ImGui::GetWindowPos(); ImVec2 ws = ImGui::GetWindowSize();  // v2.22: se necesitan arriba (cabecera fija y desplazamiento)
+    g_panelRectX = wp.x; g_panelRectY = wp.y; g_panelRectW = ws.x; g_panelRectH = ws.y;  // v2.49: rect real del panel para repartir los toques
     float pad = H * 0.014f;  // relleno de la ventana
     float xr = H * 0.020f;   // v2.23: radio de la X (mas chica que en la v2.22)
     float titleY = wp.y + pad;  // titulo
@@ -2381,6 +2411,9 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     bool needDraw = (g_inVehicle && !g_paused && (g_open || g_preview || g_cfg.botonVisible)) || (g_settings && !g_paused);
     if (needDraw) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // v2.49: en el primer cuadro del panel el raton va limpio (sin el clic
+        // que lo abrio): asi ese clic no activa una barra o un boton del panel.
+        if (g_panelJustOpened) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); }
         ImGui_ImplOpenGL3_NewFrame(); ImGui::NewFrame();
         if (g_inVehicle && !g_paused) DrawWheel((float)w, (float)h);
         if (g_settings && !g_paused) DrawSettings((float)w, (float)h);
