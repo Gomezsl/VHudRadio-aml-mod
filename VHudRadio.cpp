@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.49.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.50.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -47,6 +47,16 @@
 //   volvia a su mismo lugar. Ahora al soltar el dedo se olvida el valor
 //   guardado (savedPtr = nullptr), asi que solo se restaura durante el
 //   mismo arrastre que empezo en esa barra.
+// v2.50: EL DOBLE TOQUE AL BOTON MUEVE LAS BARRAS + PANEL MEJOR ORDENADO
+// - La 2.49 no basto: con solo el boton visible no se dibuja ImGui y los
+//   toques del doble toque se acumulan en la cola de entrada; al abrir el
+//   panel se procesan todos en su primer cuadro (MouseClicked en true) y
+//   activan barras/botones. Ahora los toques solo llegan a ImGui con la
+//   rueda, la vista previa o el panel abiertos; con solo el boton, no se
+//   alimentan (la logica del boton/rueda/claxon es del juego y sigue igual).
+// - Panel mejor ordenado (como ARCX): mas espacio entre controles, controles
+//   mas altos al tacto y dos secciones con titulo (Rueda de radio / Boton
+//   flotante).
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
 //   Ahora cada toque pertenece al panel (si cae dentro al bajar el dedo) o al
@@ -493,9 +503,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.49.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.50.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.49.0-beta"
+#define VHUDRADIO_VERSION "2.50.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -570,14 +580,14 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 enum LangId { L_ES = 0, L_EN, L_ID, L_PT, L_FR, L_DE, L_COUNT };
 static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indonesia", "Portugues (BR)", "Francais", "Deutsch" };
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
-enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_COUNT };
+enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_SEC_RUEDA, STR_SEC_BOTON, STR_COUNT };  // v2.50: titulos de seccion del panel
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante" },
-    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante", "Rueda de radio", "Boton flotante" },
+    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button", "Radio wheel", "Floating button" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang", "Roda radio", "Tombol melayang" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante", "Roda de radio", "Botao flutuante" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant", "Roue radio", "Bouton flottant" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen", "Radiorad", "Schwebender Button" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -1598,7 +1608,7 @@ static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const cha
     dl->AddText(ImVec2(lp.x + w - vs.x - H*0.008f, lp.y), IM_COL32(255, 255, 255, 255), vb);
     ImGui::Dummy(ImVec2(w, ImGui::GetTextLineHeight()));
     ImVec2 p0 = ImGui::GetCursorScreenPos();
-    float zoneH = H * 0.045f;
+    float zoneH = H * 0.050f;  // v2.50: barra mas alta al tacto
     ImGui::InvisibleButton(label, ImVec2(w, zoneH));
     bool active = ImGui::IsItemActive();
     ImGuiIO& io = ImGui::GetIO();
@@ -1636,7 +1646,7 @@ static bool PanelSlider(const char* label, int* v, int vmin, int vmax, const cha
 static bool PanelSwitch(const char* label, bool* v, float H) {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     float w = ImGui::GetContentRegionAvail().x;
-    float bh = H * 0.050f;
+    float bh = H * 0.056f;  // v2.50: interruptor mas alto
     float rd = H * 0.012f;
     bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1658,7 +1668,7 @@ static bool PanelSwitch(const char* label, bool* v, float H) {
 static bool PanelButtonIcon(const char* label, float H, float w, int icon) {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
     if (w <= 0.0f) w = ImGui::GetContentRegionAvail().x;  // 0 = todo el ancho
-    float bh = H * 0.050f;
+    float bh = H * 0.056f;  // v2.50: boton mas alto
     float rd = H * 0.012f;  // v2.22: esquinas redondeadas (como las filas de ARCX)
     bool clicked = ImGui::InvisibleButton(label, ImVec2(w, bh));
     bool active = ImGui::IsItemActive();
@@ -1709,7 +1719,7 @@ static void DrawSettings(float W, float H) {
     else ImGui::SetNextWindowPos(ImVec2(W * 0.5f, H * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(W * g_cfg.panelAncho, g_cfg.panelAlto >= 0.0f ? H * g_cfg.panelAlto : 0), ImGuiCond_Always);  // v2.18: alto ajustable (-1 = automatico)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(H*0.014f, H*0.014f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.010f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(H*0.010f, H*0.016f));  // v2.50: mas aire entre controles (antes todo iba muy junto)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, H*0.015f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.05f, 0.13f, 0.97f));  // azul casi oscuro
@@ -1813,6 +1823,9 @@ static void DrawSettings(float W, float H) {
         scrollVel = 0.0f;
     }
     // v2.22: el titulo, el subtitulo y la linea van en primer plano (cabecera fija, abajo)
+    // v2.50: secciones con titulo (como ARCX) - Rueda de radio / Boton flotante
+    ImGui::TextColored(titleCol, "%s", S(STR_SEC_RUEDA));
+    ImGui::Separator();
     if (PanelSlider(S(STR_FONDO), &g_cfg.fondo, 0, 100, "%d%%", H, IC_SUN)) g_cfgDirty = true;
     if (PanelSlider(S(STR_TAMANO), &g_cfg.tamano, 25, 45, "%d%%", H, IC_SIZE)) g_cfgDirty = true;
     // recuadros de color: al tocar uno se abre el panel RGB para ese color
@@ -1904,6 +1917,8 @@ static void DrawSettings(float W, float H) {
         snprintf(vals, sizeof vals, "R %d   G %d   B %d    #%02X%02X%02X", cr, cg, cb, cr, cg, cb);
         ImGui::Text("%s", vals);
     }
+    ImGui::Separator();
+    ImGui::TextColored(titleCol, "%s", S(STR_SEC_BOTON));
     ImGui::Separator();
     // v2.16: idioma + boton flotante (tamano, opacidad, bloqueo, posicion)
     // v2.23: globo a la izquierda de "Idioma" (como la imagen)
@@ -2244,7 +2259,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     static bool mouseDown = false;
     for (auto& e : evs) {
         if (e.kind == 0) {
-            io.AddMousePosEvent(e.x, e.y);
+            if (g_open || g_preview || g_settings) io.AddMousePosEvent(e.x, e.y);  // v2.50: con solo el boton, el toque no llega a ImGui
             g_touchX = e.x; g_touchY = e.y;  // v2.18: posicion propia del toque
             if (g_open && !g_settings && !g_paused) {
                 int seg = SegmentAt(e.x, e.y, (float)w, (float)h);
@@ -2264,7 +2279,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     g_cfg.btnX = nx; g_cfg.btnY = ny;
                 }
             }
-        } else if (e.kind == 1) { io.AddMouseButtonEvent(0, true); mouseDown = true;
+        } else if (e.kind == 1) { if (g_open || g_preview || g_settings) io.AddMouseButtonEvent(0, true); mouseDown = true;  // v2.50: con solo el boton, el toque no llega a ImGui
             // v2.3: en el menu de pausa los toques son del juego; con el panel abierto, del panel (ImGui)
             if (g_paused) {
                 // nada: el menu de pausa procesa el toque
@@ -2310,7 +2325,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
                     g_dragBY = (g_cfg.btnY >= 0.0f ? g_cfg.btnY : ip.y / (float)h);
                 }
             }
-        } else if (e.kind == 2) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        } else if (e.kind == 2) { if (g_open || g_preview || g_settings) { io.AddMouseButtonEvent(0, false); io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); }  // v2.50: con solo el boton, el toque no llega a ImGui
             // v2.16: el toque al boton flotante se resuelve al soltar
             if (g_btnDrag) {
                 g_btnDrag = false;
