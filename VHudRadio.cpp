@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.58.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.59.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -122,6 +122,10 @@
 // cambiar a User Tracks por la rueda (15-20 veces, reiniciando el juego),
 // el culpable es la salida de audio del mod; si sigue fallando, el audio
 // queda descartado y se prueba la forma de llamar a StartRadio.
+// v2.58 FALLO al 2o intento -> audio DESCARTADO. v2.59: 3 modos de cambio
+// (INI modoCambio: 0 = actual por CAERadioTrackManager::StartRadio;
+// 1 = esperar 3 cuadros con la rueda cerrada antes de llamar a StartRadio;
+// 2 = por CAudioEngine::StartRadio). Clics restaurados (el audio no era).
 // - Interruptores: solo se activan tocando la pastilla, no toda la fila azul.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
@@ -571,9 +575,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.58.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.59.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.58.0-beta"
+#define VHUDRADIO_VERSION "2.59.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -666,7 +670,8 @@ static void SoundWorker() {
 
 // Se llama desde el hilo de render/toque: ya no toca OpenSL, solo avisa al hilo de sonido.
 static void PlayClick(bool hi) {
-    return;  // PRUEBA v2.58: sin sonido de clic, no se crea OpenSL
+    // v2.59: clics restaurados (la 2.58 sin clics fallo al 2o intento: el
+    // audio del mod NO era la causa del ruido de User Tracks).
     if (!g_sndStarted) { g_sndStarted = true; std::thread(SoundWorker).detach(); }
     { std::lock_guard<std::mutex> lk(g_sndMtx); g_clickReq = hi ? 2 : 1; }
     g_sndCv.notify_one();
@@ -763,7 +768,7 @@ static void LoadHornPos() {
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
 // iconosColor=0 (0 = iconos normales de radio/, 1 = iconos a color de radio_color/) (v2.28)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; int blur = 0; int bloquearJuego = 1; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; int blur = 0; int bloquearJuego = 1; int modoCambio = 0; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -810,10 +815,11 @@ static void SaveCfg() {
     fprintf(f, "animacion=%d\n", g_cfg.animacion);
     fprintf(f, "blur=%d\n", g_cfg.blur);
     fprintf(f, "bloquearJuego=%d\n", g_cfg.bloquearJuego);
+    fprintf(f, "modoCambio=%d\n", g_cfg.modoCambio);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1; g_cfg.modoCambio = 0;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -879,6 +885,7 @@ static void LoadCfg() {
         else if (strcmp(k, "animacion") == 0) g_cfg.animacion = atoi(v);
         else if (strcmp(k, "blur") == 0) g_cfg.blur = atoi(v);
         else if (strcmp(k, "bloquearJuego") == 0) g_cfg.bloquearJuego = atoi(v);
+        else if (strcmp(k, "modoCambio") == 0) g_cfg.modoCambio = atoi(v);
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -914,6 +921,7 @@ static void LoadCfg() {
     if (g_cfg.animacion != 0 && g_cfg.animacion != 1) g_cfg.animacion = 1;
     if (g_cfg.blur < 0) g_cfg.blur = 0; if (g_cfg.blur > 100) g_cfg.blur = 100;
     if (g_cfg.bloquearJuego != 0 && g_cfg.bloquearJuego != 1) g_cfg.bloquearJuego = 1;
+    if (g_cfg.modoCambio < 0 || g_cfg.modoCambio > 2) g_cfg.modoCambio = 0;
     // v2.20: el tamano por defecto vuelve a ser mediano (0.44 x automatico);
     // un .ini con los valores grandes de la v2.19 (0.60 x 0.90, nunca se
     // redimensiono o se restablecio en la v2.19) vuelve al mediano
@@ -1147,6 +1155,31 @@ static GLuint IconTex(int i) {
 }
 
 // ---- cambiar de estacion: solo con funciones que resolvieron ----
+// v2.59: modoCambio=1 aplaza el cambio 3 cuadros (la rueda ya esta cerrada).
+static int g_pendingStation = 0;   // 0 = no hay cambio pendiente
+static int g_pendingFrames = 0;    // cuadros que faltan para el cambio
+
+// v2.59: el cambio real (llamada al juego + lectura). Lo hace ApplyStation
+// directo (modo 0 y 2) o 3 cuadros despues de cerrar la rueda (modo 1).
+static void DoStartRadio(int id) {
+    // v2.59 modo 2: por CAudioEngine::StartRadio (ya resolvia en el arranque
+    // y es el respaldo del modo 0; aqui es la via principal). El simbolo
+    // Android es StartRadio(signed char, signed char), no el (int, char)
+    // del plugin-sdk de PC: el typedef ya es (void*, signed char, signed
+    // char) y pasa (signed char)id y 0. Nunca se ha llamado de verdad
+    // (solo era respaldo), asi que es una via sin probar: si falla en el
+    // telefono, no se vuelve a usar.
+    if (g_cfg.modoCambio == 2 && g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0) [modoCambio=2]", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
+    // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
+    // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
+    else if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0) [modoCambio=%d]", id, kStationName[id], g_cfg.modoCambio); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
+    else if (g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
+    else if (g_retuneAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio(g_audioEngine, (signed char)id); }
+    else if (g_retuneTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack(g_trackManager, (signed char)id); }
+    else { Log("!! sin Retune/Start con su objeto global: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
+    // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
+    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
+}
 static void ApplyStation(int id) {
     if (id < 1 || id > 13) return;
     // v2.32: restaurar la escala de tiempo ANTES de cambiar la estacion.
@@ -1163,16 +1196,18 @@ static void ApplyStation(int id) {
     // SAUserTracks puede arrancar su MP3 a ritmo lento al interceptar
     // StartRadio(12).
     if (g_slowScale) *g_slowScale = 1.0f;
-    // v1.2: StartRadio primero (es el que cambia a una estacion concreta).
-    // v1.3: cada llamada lleva su 'this' (el objeto global del juego).
-    if (g_startTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::StartRadio(id,0,1.0,0)", id, kStationName[id]); g_startTrack(g_trackManager, (signed char)id, 0, 1.0f, 0); }
-    else if (g_startAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::StartRadio(id,0)", id, kStationName[id]); g_startAudio(g_audioEngine, (signed char)id, 0); }
-    else if (g_retuneAudio && g_audioEngine) { Log("cambio a %d (%s) por CAudioEngine::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneAudio(g_audioEngine, (signed char)id); }
-    else if (g_retuneTrack && g_trackManager) { Log("cambio a %d (%s) por CAERadioTrackManager::RetuneRadio (ultimo recurso)", id, kStationName[id]); g_retuneTrack(g_trackManager, (signed char)id); }
-    else { Log("!! sin Retune/Start con su objeto global: la rueda se ve pero NO puede cambiar la estacion (ver VHudRadioProbe.txt)"); return; }
+    // v2.59: modo 1 espera 3 cuadros con la rueda ya cerrada (sin UI ni
+    // camara lenta) antes de llamar a StartRadio, para que SAUserTracks
+    // arranque sin la carga de dibujar la rueda. El cambio pendiente se
+    // ejecuta en DrawFrame.
+    if (g_cfg.modoCambio == 1) {
+        g_pendingStation = id;
+        g_pendingFrames = 3;
+        Log("cambio a %d (%s) aplazado 3 cuadros [modoCambio=1]", id, kStationName[id]);
+    } else {
+        DoStartRadio(id);
+    }
     g_current = id;
-    // verificar lo que el juego dice que suena ahora (diagnostico v1.2)
-    if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); Log("  estacion leida tras cambio: %d (%s)%s", v, (v >= 1 && v <= 13) ? kStationName[v] : "?", v == id ? "" : "  <-- NO COINCIDE"); }
 }
 static void RefreshCurrent() {
     if (g_getStationAudio && g_audioEngine) { int v = (int)g_getStationAudio(g_audioEngine); if (v >= 1 && v <= 13) g_current = v; return; }
@@ -2325,7 +2360,7 @@ static void DrawSettings(float W, float H) {
     if (PanelButtonIcon(S(STR_RESET), H, 0.0f, IC_RESET)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1; g_cfg.modoCambio = 0;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
@@ -2449,6 +2484,13 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
     if (g_failed) return;
     EGLContext ctx = eglGetCurrentContext();
     if (ctx == EGL_NO_CONTEXT) return;
+    // v2.59: cambio de estacion aplazado (modoCambio=1): 3 cuadros despues
+    // de cerrar la rueda, sin UI ni camara lenta.
+    if (g_pendingStation != 0 && --g_pendingFrames <= 0) {
+        int pid = g_pendingStation;
+        g_pendingStation = 0; g_pendingFrames = 0;
+        DoStartRadio(pid);
+    }
     // v2.51: el tamano de pantalla se consulta una vez y cada 120 cuadros
     // (antes 2 eglQuerySurface en cada cuadro)
     static EGLint cw = 0, ch = 0; static int qTick = 0;
