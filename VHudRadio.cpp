@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.53.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.54.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -97,6 +97,16 @@
 //   en files/vhud/radio/ y radio_color/) o solo los incrustados, con recarga.
 // - NO se hace el blur (muy caro en el A14) ni sonidos/textos propios ni
 //   ocultar botones del juego (arriesgado sin probar).
+// v2.54: CORRECCIONES a la 2.53 (prueba de Daniel, log VHudRadioLog_2_rlyz.txt)
+// - Recuadro del boton: se oculta ENTERO (fondo+estacion+genero) si el genero
+//   esta apagado o si esta activa "Ocultar ventana de emisora" (ImGui y GL).
+// - Fondo de icono: los PNG traen negro opaco de fondo; se vuelve transparente
+//   el negro casi puro al cargar (LoadPngFromMemory), asi el color se ve.
+// - Animacion: el inicio se guarda al abrir (global), no en DrawWheel (que no
+//   se llama con solo el boton); 250 ms y desde 0.75 para que siempre se vea.
+// - Iconos propios: LoadRadioTextures se llama cada cuadro (antes solo una
+//   vez al inicio), asi al apagar/encender vuelven a cargar.
+// - Interruptores: solo se activan tocando la pastilla, no toda la fila azul.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
 //   Ahora cada toque pertenece al panel (si cae dentro al bajar el dedo) o al
@@ -545,9 +555,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.53.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.54.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.53.0-beta"
+#define VHUDRADIO_VERSION "2.54.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -896,6 +906,7 @@ static std::string g_vhudDir;   // /storage/emulated/0/vhud
 static int g_current = 1;       // estacion actual conocida (1..13)
 static int g_selected = 1;      // segmento bajo el dedo mientras la rueda esta abierta
 static bool g_open = false;
+static std::chrono::steady_clock::time_point g_wheelAnimStart = std::chrono::steady_clock::now();  // v2.54: cuando se abrio la rueda (para la animacion)
 static bool g_btnPending = false;  // v2.1: un toque al boton flotante esperando (siguiente estacion si no hay segundo toque)
 static std::chrono::steady_clock::time_point g_btnPendingAt;
 static bool g_btnDrag = false;   // v2.16: el toque actual empezo en el boton flotante (puede ser arrastre)
@@ -1025,6 +1036,18 @@ static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
             }
             upPx = pxSmall; upW = nw; upH = nh;
         }
+    }
+    // v2.54: quitar el fondo negro opaco de los iconos (los PNG de V-HUD y
+    // slotrad traen el logo sobre negro opaco, no transparente: el normal
+    // tiene ~4670 px negros puros y el de color ~28085). Si no, el circulo de
+    // color de fondoIcono queda tapado por el negro y solo se ve por los
+    // bordes. Se vuelve transparente todo pixel opaco casi negro (max canal
+    // < 32); el logo es claro/de color y no se toca (hay un hueco claro entre
+    // el negro puro y el logo). Se hace aqui (tras achicar) para que el borde
+    // del achicado tambien se limpie. No toca radio_current (sin negros).
+    for (int i = 0; i < upW * upH; i++) {
+        unsigned char* p = upPx + i * 4;
+        if (p[3] > 0 && p[0] < 32 && p[1] < 32 && p[2] < 32) p[3] = 0;
     }
     GLint last = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &last);
     GLuint tex = 0; glGenTextures(1, &tex); glBindTexture(GL_TEXTURE_2D, tex);
@@ -1160,7 +1183,7 @@ static void ToggleWheel(const char* why) {
     auto now = std::chrono::steady_clock::now();
     if (now - lastToggle < std::chrono::milliseconds(600)) return;
     lastToggle = now;
-    if (!g_open) { g_open = true; g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); PlayClick(false); }
+    if (!g_open) { g_open = true; g_wheelAnimStart = std::chrono::steady_clock::now(); g_ignoreNextUp = true; RefreshCurrent(); g_selected = g_current; Log("rueda abierta por %s (estacion actual %d %s)", why, g_current, kStationName[g_current]); PlayClick(false); }
     else { g_open = false; g_centerTap = false; Log("rueda cerrada por %s", why); }
 }
 
@@ -1411,7 +1434,8 @@ static bool DrawButtonGL(float W, float H) {
         dst.push_back({x0, y1, u0, v1, r, g, b, a});
     };
     // Fondo de la etiqueta (negro semitransparente, textura blanca 1x1).
-    quadTo(vBg, lp.x, lp.y, lp.x + ls.x, lp.y + ls.y, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 140.0f * opF / 255.0f);
+    // v2.54: el recuadro entero se oculta como en ImGui (ver DrawWheel).
+    if (g_cfg.mostrarGenero && !g_cfg.ocultarNombre) quadTo(vBg, lp.x, lp.y, lp.x + ls.x, lp.y + ls.y, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 140.0f * opF / 255.0f);
     // Texto: nombre y genero con los glifos del atlas de ImGui (UTF-8).
     auto drawText = [&](const char* str, float x, float y, float size, float r, float g, float b, float a) {
         float scale = size / font->FontSize;
@@ -1430,8 +1454,10 @@ static bool DrawButtonGL(float W, float H) {
             cx += gl->AdvanceX * scale;
         }
     };
-    drawText(kStationName[g_current], lp.x + H * 0.01f, lp.y + H * 0.008f, ns, 1.0f, 1.0f, 1.0f, opF);
-    if (g_cfg.mostrarGenero) drawText(Genre(g_current), lp.x + H * 0.01f, lp.y + H * 0.008f + ns, ts, 200.0f/255.0f, 225.0f/255.0f, 235.0f/255.0f, 230.0f * opF / 255.0f);  // v2.53: genero opcional
+    if (g_cfg.mostrarGenero && !g_cfg.ocultarNombre) {
+        drawText(kStationName[g_current], lp.x + H * 0.01f, lp.y + H * 0.008f, ns, 1.0f, 1.0f, 1.0f, opF);
+        drawText(Genre(g_current), lp.x + H * 0.01f, lp.y + H * 0.008f + ns, ts, 200.0f/255.0f, 225.0f/255.0f, 235.0f/255.0f, 230.0f * opF / 255.0f);
+    }
     // Icono de la estacion.
     GLuint it = IconTex(g_current);
     if (it) quadTo(vIco, bp.x, bp.y, bp.x + bs, bp.y + bs, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, opF);
@@ -1518,16 +1544,14 @@ static void DrawWheel(float W, float H) {
     // v2.53: animacion de apertura (solo si esta activa): la rueda crece de
     // 0.85 a 1.0 y se funde en 150 ms. Se mide desde que se abrio (cualquier
     // via: claxon, boton, vista previa); si esta apagada, anim = 1 siempre.
-    // Va ANTES del return de rueda cerrada: si no, wasOpenAnim nunca se
-    // resetea al cerrar y la animacion no se repetiria al volver a abrir.
-    static bool wasOpenAnim = false;
-    static auto openT = std::chrono::steady_clock::now();
-    auto nowAnim = std::chrono::steady_clock::now();
-    if (g_open && !wasOpenAnim) openT = nowAnim;
-    wasOpenAnim = g_open;
+    // v2.54: el inicio se guarda en g_wheelAnimStart al abrir (ToggleWheel /
+    // vista previa), no aqui: DrawWheel NO se llama cuando solo esta el boton
+    // (DrawFrame usa DrawButtonGL y sale antes), asi que el static de antes
+    // nunca se reseteaba al cerrar y la animacion solo se veia "entre veces".
+    // Dura 250 ms y crece desde 0.75 para que siempre se note.
     float anim = 1.0f;
     if (g_cfg.animacion && g_open) {
-        float t = std::chrono::duration<float, std::milli>(nowAnim - openT).count() / 150.0f;
+        float t = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - g_wheelAnimStart).count() / 250.0f;
         if (t < 0.0f) t = 0.0f; if (t > 1.0f) t = 1.0f;
         anim = 1.0f - (1.0f - t) * (1.0f - t);  // ease-out
     }
@@ -1538,9 +1562,14 @@ static void DrawWheel(float W, float H) {
         FloatBtnGeom(W, H, bp, lp, ls, bs);
         float ns = H * 0.022f, ts = H * 0.018f;
         int op = g_cfg.btnOpac * 255 / 100;
-        dl->AddRectFilled(lp, ImVec2(lp.x + ls.x, lp.y + ls.y), IM_COL32(0, 0, 0, 140 * op / 255), H * 0.01f);
-        dl->AddText(font, ns, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f), IM_COL32(255,255,255,op), kStationName[g_current]);
-        if (g_cfg.mostrarGenero) dl->AddText(font, ts, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f + ns), IM_COL32(200,225,235,230 * op / 255), Genre(g_current));  // v2.53: genero opcional
+        // v2.54: el recuadro ENTERO (fondo + estacion + genero) se oculta si
+        // el genero esta apagado o si esta activa "Ocultar ventana de emisora".
+        // En la 2.53 solo se quitaba el texto del genero y el recuadro quedaba.
+        if (g_cfg.mostrarGenero && !g_cfg.ocultarNombre) {
+            dl->AddRectFilled(lp, ImVec2(lp.x + ls.x, lp.y + ls.y), IM_COL32(0, 0, 0, 140 * op / 255), H * 0.01f);
+            dl->AddText(font, ns, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f), IM_COL32(255,255,255,op), kStationName[g_current]);
+            dl->AddText(font, ts, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f + ns), IM_COL32(200,225,235,230 * op / 255), Genre(g_current));
+        }
         { GLuint it = IconTex(g_current); if (it) dl->AddImage((ImTextureID)(uintptr_t)it, bp, ImVec2(bp.x + bs, bp.y + bs), ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, op)); else dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(30,30,40,220 * op / 255)); }
         dl->AddCircle(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(255,255,255,200 * op / 255), 0, 2.0f);
     }
@@ -1549,8 +1578,8 @@ static void DrawWheel(float W, float H) {
     // v2.2: rueda estilo GTA V - 12 logos en circulo + apagar la radio en el centro
     ImVec2 c(W * 0.5f, H * 0.5f);
     float R = WheelR(H);
-    float Ri = WheelRi(H) * (0.85f + 0.15f * anim);
-    float s = WheelIconS(H) * (0.85f + 0.15f * anim);
+    float Ri = WheelRi(H) * (0.75f + 0.25f * anim);
+    float s = WheelIconS(H) * (0.75f + 0.25f * anim);
     dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(g_cfg.fondoR, g_cfg.fondoG, g_cfg.fondoB, (int)(g_cfg.fondo * 255 / 100 * anim)));  // v2.17: color de fondo ajustable (oscuridad = alfa)
     dl->AddCircle(c, Ri, IM_COL32(255, 255, 255, 70), 64, 2.0f);          // anillo fino
     for (int i = 1; i <= 13; i++) {
@@ -1791,8 +1820,14 @@ static bool PanelSwitch(const char* label, bool* v, float H) {
     float sx = p0.x + w - H*0.016f - sw, sy = p0.y + (bh - sh) * 0.5f;
     dl->AddRectFilled(ImVec2(sx, sy), ImVec2(sx + sw, sy + sh), *v ? IM_COL32(20, 110, 255, 255) : IM_COL32(74, 76, 88, 255), sh * 0.5f);
     dl->AddCircleFilled(ImVec2(*v ? sx + sw - sh * 0.5f : sx + sh * 0.5f, sy + sh * 0.5f), sh * 0.5f - H*0.004f, IM_COL32(255, 255, 255, 255), 24);
-    if (clicked) *v = !*v;
-    return clicked;
+    // v2.54: solo se activa tocando la pastilla del interruptor (derecha, con
+    // un poco de margen tactil). Antes el InvisibleButton cubria toda la fila
+    // azul y al desplazar el panel o tocar la etiqueta se cambiaban solos.
+    ImVec2 mp = ImGui::GetIO().MousePos;
+    float m = H * 0.012f;
+    bool onSwitch = (mp.x >= sx - m && mp.x <= sx + sw + m && mp.y >= sy - m && mp.y <= sy + sh + m);
+    if (clicked && onSwitch) *v = !*v;
+    return clicked && onSwitch;
 }
 static bool PanelButtonIcon(const char* label, float H, float w, int icon) {
     ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -2106,7 +2141,7 @@ static void DrawSettings(float W, float H) {
         if (PanelButtonIcon(S(STR_BTN_RESET_POS), H, bw, IC_RESET)) { g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("posicion del boton restablecida"); }
         ImGui::SameLine(0, H*0.010f);
         if (PanelButtonIcon(S(STR_PREVIEW), H, bw, IC_EYE)) {
-            g_preview = true; g_open = true; g_selected = g_current; g_settings = false;
+            g_preview = true; g_open = true; g_wheelAnimStart = std::chrono::steady_clock::now(); g_selected = g_current; g_settings = false;
             PlayClick(false);
             Log("vista previa de la rueda");
         }
@@ -2328,6 +2363,7 @@ static void DrawFrame(EGLDisplay dpy, EGLSurface surf) {
         g_inited = true; LoadRadioTextures(); RefreshCurrent();
         Log("ImGui listo (%.0fx%.0f), estacion actual: %d (%s)", (float)w, (float)h, g_current, kStationName[g_current]);
     }
+    LoadRadioTextures();  // v2.54: recargar si ReloadIcons marco g_texTried=false (antes solo se cargaba una vez al inicio; al apagar/encender los iconos propios desaparecian y no volvian). Con el guarda es un no-op si ya estan.
     ImGuiIO& io = ImGui::GetIO();
     static auto last = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
