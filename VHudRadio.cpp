@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.54.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.55.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -13,10 +13,8 @@
 // v2.29: ICONOS INCRUSTADOS EN EL .SO (YA NO HACE FALTA LA CARPETA)
 // - Los 28 PNG (14 normales + 14 a color) van dentro del .so en base64
 //   (icons_embedded.h, generado por script). Al arrancar se cargan de
-//   memoria con stb_image; la carpeta (radio/ o radio_color/) ya es
-//   opcional: solo sirve para reemplazar un icono por uno propio. Si el
-//   PNG no esta en la carpeta, se usa el incrustado. El log dice de donde
-//   salio cada icono ("archivo" o "en el .so"). El .so crece ~0.5 MB.
+//   memoria con stb_image (v2.55: solo incrustados, sin carpeta). El log dice
+//   de donde salio cada icono ("en el .so"). El .so crece ~0.5 MB.
 // v2.28: DOS JUEGOS DE ICONOS (NORMALES Y A COLOR) CON INTERRUPTOR
 // - Las emisoras tienen dos versiones: las normales (blancas, de radio/) y
 //   las de color (de radio_color/). Un interruptor en el panel ("Iconos de las
@@ -93,8 +91,8 @@
 // - Fondo de color del icono: interruptor + color (muestra nueva, objetivo 3
 //   del selector RGB); circulo de color detras de cada icono de la rueda.
 // - Animacion al abrir: la rueda crece 0.85->1.0 y se funde en 150 ms.
-// - Iconos personalizados: interruptor para usar la carpeta (radio_1..13.png
-//   en files/vhud/radio/ y radio_color/) o solo los incrustados, con recarga.
+// - (v2.55: los iconos personalizados de carpeta se quitaron por peticion
+//   de Daniel; solo van los incrustados en el .so.)
 // - NO se hace el blur (muy caro en el A14) ni sonidos/textos propios ni
 //   ocultar botones del juego (arriesgado sin probar).
 // v2.54: CORRECCIONES a la 2.53 (prueba de Daniel, log VHudRadioLog_2_rlyz.txt)
@@ -106,6 +104,11 @@
 //   se llama con solo el boton); 250 ms y desde 0.75 para que siempre se vea.
 // - Iconos propios: LoadRadioTextures se llama cada cuadro (antes solo una
 //   vez al inicio), asi al apagar/encender vuelven a cargar.
+// v2.55: QUITAR iconos personalizados (carpeta) por peticion de Daniel (evitar
+// iconos mal posicionados/errores): solo van los incrustados en el .so. El
+// fondo de color solo quita el negro cuando esta ACTIVADO (apagado = negro
+// normal de siempre); el boton recupera su disco negro detras del icono; los
+// interruptores se acomodan en su seccion (rueda / boton).
 // - Interruptores: solo se activan tocando la pastilla, no toda la fila azul.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
@@ -555,9 +558,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.54.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.55.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.54.0-beta"
+#define VHUDRADIO_VERSION "2.55.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -666,14 +669,14 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 enum LangId { L_ES = 0, L_EN, L_ID, L_PT, L_FR, L_DE, L_COUNT };
 static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indonesia", "Portugues (BR)", "Francais", "Deutsch" };
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
-enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_SEC_RUEDA, STR_SEC_BOTON, STR_GENERO, STR_OCULTARNOMBRE, STR_FONDOICONO, STR_ANIMACION, STR_ICONOSPROPIOS, STR_COUNT };  // v2.50: titulos de seccion del panel; v2.53: funciones de Discord
+enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_SEC_RUEDA, STR_SEC_BOTON, STR_GENERO, STR_OCULTARNOMBRE, STR_FONDOICONO, STR_ANIMACION, STR_COUNT };  // v2.50: titulos de seccion del panel; v2.53: funciones de Discord; v2.55: sin iconos propios
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante", "Rueda de radio", "Boton flotante", "Mostrar género en la rueda", "Ocultar ventana de emisora", "Fondo de color del icono", "Animación al abrir la rueda", "Iconos personalizados (carpeta)" },
-    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button", "Radio wheel", "Floating button", "Show genre on the wheel", "Hide station pop-up", "Icon background color", "Wheel open animation", "Custom icons (folder)" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang", "Roda radio", "Tombol melayang", "Tampilkan genre di roda", "Sembunyikan jendela stasiun", "Warna latar ikon", "Animasi buka roda", "Ikon kustom (folder)" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante", "Roda de radio", "Botao flutuante", "Mostrar gênero na roda", "Ocultar janela da estação", "Cor de fundo do ícone", "Animação ao abrir a roda", "Ícones personalizados (pasta)" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant", "Roue radio", "Bouton flottant", "Afficher le genre sur la roue", "Masquer la fenêtre de station", "Couleur de fond de l'icône", "Animation d'ouverture de la roue", "Icônes personnalisées (dossier)" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen", "Radiorad", "Schwebender Button", "Genre auf dem Rad anzeigen", "Stationsfenster ausblenden", "Symbol-Hintergrundfarbe", "Animation beim Öffnen des Rads", "Eigene Symbole (Ordner)" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante", "Rueda de radio", "Boton flotante", "Mostrar género en la rueda", "Ocultar ventana de emisora", "Fondo de color del icono", "Animación al abrir la rueda" },
+    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button", "Radio wheel", "Floating button", "Show genre on the wheel", "Hide station pop-up", "Icon background color", "Wheel open animation" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang", "Roda radio", "Tombol melayang", "Tampilkan genre di roda", "Sembunyikan jendela stasiun", "Warna latar ikon", "Animasi buka roda" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante", "Roda de radio", "Botao flutuante", "Mostrar gênero na roda", "Ocultar janela da estação", "Cor de fundo do ícone", "Animação ao abrir a roda" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant", "Roue radio", "Bouton flottant", "Afficher le genre sur la roue", "Masquer la fenêtre de station", "Couleur de fond de l'icône", "Animation d'ouverture de la roue" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen", "Radiorad", "Schwebender Button", "Genre auf dem Rad anzeigen", "Stationsfenster ausblenden", "Symbol-Hintergrundfarbe", "Animation beim Öffnen des Rads" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -746,7 +749,7 @@ static void LoadHornPos() {
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
 // iconosColor=0 (0 = iconos normales de radio/, 1 = iconos a color de radio_color/) (v2.28)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; int iconosPropios = 1; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -791,11 +794,10 @@ static void SaveCfg() {
     fprintf(f, "fondoIcono=%d\n", g_cfg.fondoIcono);
     fprintf(f, "fondoIconoColor=%d,%d,%d\n", g_cfg.fondoIconoR, g_cfg.fondoIconoG, g_cfg.fondoIconoB);
     fprintf(f, "animacion=%d\n", g_cfg.animacion);
-    fprintf(f, "iconosPropios=%d\n", g_cfg.iconosPropios);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.iconosPropios = 1;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -859,7 +861,6 @@ static void LoadCfg() {
             if (sscanf(v, "%d,%d,%d", &r, &g, &b) == 3) { g_cfg.fondoIconoR = r; g_cfg.fondoIconoG = g; g_cfg.fondoIconoB = b; }
         }
         else if (strcmp(k, "animacion") == 0) g_cfg.animacion = atoi(v);
-        else if (strcmp(k, "iconosPropios") == 0) g_cfg.iconosPropios = atoi(v);
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -893,7 +894,6 @@ static void LoadCfg() {
     if (g_cfg.fondoIconoG < 0) g_cfg.fondoIconoG = 0; if (g_cfg.fondoIconoG > 255) g_cfg.fondoIconoG = 255;
     if (g_cfg.fondoIconoB < 0) g_cfg.fondoIconoB = 0; if (g_cfg.fondoIconoB > 255) g_cfg.fondoIconoB = 255;
     if (g_cfg.animacion != 0 && g_cfg.animacion != 1) g_cfg.animacion = 1;
-    if (g_cfg.iconosPropios != 0 && g_cfg.iconosPropios != 1) g_cfg.iconosPropios = 1;
     // v2.20: el tamano por defecto vuelve a ser mediano (0.44 x automatico);
     // un .ini con los valores grandes de la v2.19 (0.60 x 0.90, nunca se
     // redimensiono o se restablecio en la v2.19) vuelve al mediano
@@ -1045,7 +1045,10 @@ static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
     // < 32); el logo es claro/de color y no se toca (hay un hueco claro entre
     // el negro puro y el logo). Se hace aqui (tras achicar) para que el borde
     // del achicado tambien se limpie. No toca radio_current (sin negros).
-    for (int i = 0; i < upW * upH; i++) {
+    // v2.55: SOLO cuando fondoIcono esta activado; apagado, los iconos
+    // vuelven a su fondo negro normal de siempre (al cambiar el interruptor
+    // se recargan las texturas con ReloadIcons).
+    if (g_cfg.fondoIcono) for (int i = 0; i < upW * upH; i++) {
         unsigned char* p = upPx + i * 4;
         if (p[3] > 0 && p[0] < 32 && p[1] < 32 && p[2] < 32) p[3] = 0;
     }
@@ -1065,22 +1068,10 @@ static GLuint LoadPngFromMemory(const unsigned char* buf, size_t len) {
     stbi_image_free(px);
     return glGetError() == GL_NO_ERROR ? tex : 0;
 }
-static GLuint LoadPngToGl(const std::string& path) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return 0;
-    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 4*1024*1024) { fclose(f); return 0; }
-    std::vector<unsigned char> buf((size_t)len);
-    if (fread(buf.data(), 1, buf.size(), f) != buf.size()) { fclose(f); return 0; }
-    fclose(f);
-    return LoadPngFromMemory(buf.data(), buf.size());
-}
-// v2.29: un icono: primero la carpeta (si el usuario puso su propio PNG, manda),
-// si no esta, el PNG incrustado en el .so. srcOut dice de donde salio.
-static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, const char** srcOut) {
+// v2.55: un icono: SOLO el PNG incrustado en el .so (se quitaron los iconos
+// personalizados de carpeta por peticion de Daniel). srcOut dice de donde salio.
+static GLuint LoadIconFileOrEmbedded(int set, int idx, const char** srcOut) {
     GLuint t = 0;
-    if (g_cfg.iconosPropios) t = LoadPngToGl(path);  // v2.53: sin iconos propios, solo los incrustados
-    if (t) { if (srcOut) *srcOut = "archivo"; return t; }
     const char* b64 = EmbeddedIconB64(set, idx);
     if (b64) {
         std::vector<unsigned char> raw = B64Decode(b64);
@@ -1090,44 +1081,37 @@ static GLuint LoadIconFileOrEmbedded(int set, int idx, const std::string& path, 
     if (srcOut) *srcOut = "-";
     return 0;
 }
-// v2.28: carga un juego de iconos (normales de radio/ o a color de radio_color/)
-// con los mismos respaldos de carpeta que antes.
-// v2.29: la carpeta ya es opcional: si el PNG no esta en la carpeta, se usa el
-// incrustado en el .so (icons_embedded.h). La carpeta sigue mandando si existe.
-static void LoadIconSet(GLuint* tex, const char* subdir, const char* etiqueta, int set) {
-    // v2.36: la carpeta VHudRadio/ ya no existe; los iconos se buscan en
-    // las carpetas vhud/ viejas y si no, van los incrustados en el .so.
-    std::string dir = g_gameFilesDir + "/vhud/" + subdir;
-    { struct stat st; if (stat((dir + "/radio_1.png").c_str(), &st) != 0) dir = g_vhudDir + "/" + subdir; }
-    Log("carpeta de iconos %s: %s/ (si falta, va el incrustado en el .so)", etiqueta, dir.c_str());
+// v2.55: carga un juego de iconos SOLO del .so (incrustados). La carpeta de
+// iconos personalizados se quito por peticion de Daniel.
+static void LoadIconSet(GLuint* tex, const char* etiqueta, int set) {
+    Log("iconos %s: incrustados en el .so", etiqueta);
     int ok = 0;
     for (int i = 1; i <= 13; i++) {
         const char* src = "-";
-        std::string p = dir + "/radio_" + std::to_string(i) + ".png";
-        tex[i] = LoadIconFileOrEmbedded(set, i, p, &src);
+        tex[i] = LoadIconFileOrEmbedded(set, i, &src);
         if (tex[i]) ok++;
         Log("  %s %s radio_%d.png (%s)", etiqueta, tex[i] ? "ok    " : "FALTA ", i, src);
     }
     const char* src0 = "-";
-    tex[0] = LoadIconFileOrEmbedded(set, 0, dir + "/radio_current.png", &src0);
+    tex[0] = LoadIconFileOrEmbedded(set, 0, &src0);
     Log("  %s %s radio_current.png (%s)", etiqueta, tex[0] ? "ok    " : "FALTA ", src0);
     Log("iconos %s cargados: %d/13 (+marco %s)", etiqueta, ok, tex[0] ? "si" : "no");
 }
 static void LoadRadioTextures() {
     if (g_texTried) return; g_texTried = true;
     // v2.16: iconos normales en files del juego (Android/data/.../files/VHudRadio/radio/);
-    // si no estan ahi, se busca en la carpeta de antes (files/vhud/radio) y
-    // luego en /storage/emulated/0/vhud/radio/.
-    LoadIconSet(g_tex, "radio", "normales", 0);
-    // v2.28: iconos a color en VHudRadio/radio_color/ (mismos respaldos); si a
-    // alguno le falta, se usa el normal de esa emisora para que la rueda no se rompa.
-    LoadIconSet(g_texColor, "radio_color", "a color", 1);
+    // v2.55: solo incrustados en el .so (sin carpeta).
+    LoadIconSet(g_tex, "normales", 0);
+    // v2.28: iconos a color (incrustados); si a alguno le falta, se usa el
+    // normal de esa emisora para que la rueda no se rompa.
+    LoadIconSet(g_texColor, "a color", 1);
     for (int i = 0; i <= 13; i++) if (!g_texColor[i]) g_texColor[i] = g_tex[i];
     int ok = 0; for (int i = 1; i <= 13; i++) if (g_tex[i]) ok++;
-    if (ok == 0) Log("  !! sin iconos ni en carpeta ni incrustados en el .so (no deberia pasar)");
+    if (ok == 0) Log("  !! sin iconos incrustados en el .so (no deberia pasar)");
 }
-// v2.53: recargar iconos (al cambiar el interruptor de iconos propios):
-// borra las texturas GL y marca para recargar en el siguiente cuadro.
+// v2.55: recargar iconos (al cambiar el interruptor de fondo de color):
+// borra las texturas GL y marca para recargar en el siguiente cuadro, con el
+// black-key segun el nuevo valor de fondoIcono (apagado = negro normal).
 static void ReloadIcons() {
     for (int i = 0; i < 14; i++) {
         if (g_tex[i]) { glDeleteTextures(1, &g_tex[i]); g_tex[i] = 0; }
@@ -1459,6 +1443,10 @@ static bool DrawButtonGL(float W, float H) {
         drawText(Genre(g_current), lp.x + H * 0.01f, lp.y + H * 0.008f + ns, ts, 200.0f/255.0f, 225.0f/255.0f, 235.0f/255.0f, 230.0f * opF / 255.0f);
     }
     // Icono de la estacion.
+    // v2.55: fondo negro detras del icono (como en ImGui: el fondo negro que
+    // siempre tuvo el boton; el icono puede ser transparente con el fondo de
+    // color encendido). Cuadro negro en vBg (textura blanca 1x1).
+    quadTo(vBg, bp.x, bp.y, bp.x + bs, bp.y + bs, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, opF);
     GLuint it = IconTex(g_current);
     if (it) quadTo(vIco, bp.x, bp.y, bp.x + bs, bp.y + bs, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, opF);
     // Guardar estado GL del juego (incluido el VAO y el framebuffer).
@@ -1570,7 +1558,10 @@ static void DrawWheel(float W, float H) {
             dl->AddText(font, ns, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f), IM_COL32(255,255,255,op), kStationName[g_current]);
             dl->AddText(font, ts, ImVec2(lp.x + H * 0.01f, lp.y + H * 0.008f + ns), IM_COL32(200,225,235,230 * op / 255), Genre(g_current));
         }
-        { GLuint it = IconTex(g_current); if (it) dl->AddImage((ImTextureID)(uintptr_t)it, bp, ImVec2(bp.x + bs, bp.y + bs), ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, op)); else dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(30,30,40,220 * op / 255)); }
+        // v2.55: disco negro detras del icono de la emisora (el fondo negro
+        // que siempre tuvo el boton; con el fondo de color encendido el icono
+        // queda transparente y sin esto se veria el fondo del boton).
+        { GLuint it = IconTex(g_current); if (it) { dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(0, 0, 0, op)); dl->AddImage((ImTextureID)(uintptr_t)it, bp, ImVec2(bp.x + bs, bp.y + bs), ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, op)); } else dl->AddCircleFilled(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(30,30,40,220 * op / 255)); }
         dl->AddCircle(ImVec2(bp.x + bs/2, bp.y + bs/2), bs/2, IM_COL32(255,255,255,200 * op / 255), 0, 2.0f);
     }
 
@@ -2089,6 +2080,22 @@ static void DrawSettings(float W, float H) {
         snprintf(vals, sizeof vals, "R %d   G %d   B %d    #%02X%02X%02X", cr, cg, cb, cr, cg, cb);
         ImGui::Text("%s", vals);
     }
+    // v2.55: interruptores de la rueda en su seccion (antes estaban todos
+    // amontonados bajo "Boton flotante").
+    {
+        bool color = g_cfg.iconosColor != 0;
+        if (PanelSwitch(S(STR_ICONOSCOLOR), &color, H)) { g_cfg.iconosColor = color ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("iconos de las emisoras: %s", g_cfg.iconosColor ? "a color" : "normales"); }
+        bool lenta = g_cfg.camaraLenta != 0;
+        if (PanelSwitch(S(STR_CAMARALENTA), &lenta, H)) { g_cfg.camaraLenta = lenta ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("camara lenta: %s", g_cfg.camaraLenta ? "activada" : "apagada"); }
+        bool genero = g_cfg.mostrarGenero != 0;
+        if (PanelSwitch(S(STR_GENERO), &genero, H)) { g_cfg.mostrarGenero = genero ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("genero en la rueda: %s", g_cfg.mostrarGenero ? "visible" : "oculto"); }
+        bool ocNom = g_cfg.ocultarNombre != 0;
+        if (PanelSwitch(S(STR_OCULTARNOMBRE), &ocNom, H)) { g_cfg.ocultarNombre = ocNom ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("ventana de emisora: %s", g_cfg.ocultarNombre ? "oculta" : "visible"); }
+        bool fIco = g_cfg.fondoIcono != 0;
+        if (PanelSwitch(S(STR_FONDOICONO), &fIco, H)) { g_cfg.fondoIcono = fIco ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); ReloadIcons(); Log("fondo del icono: %s", g_cfg.fondoIcono ? "activado" : "apagado"); }
+        bool anim = g_cfg.animacion != 0;
+        if (PanelSwitch(S(STR_ANIMACION), &anim, H)) { g_cfg.animacion = anim ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("animacion de la rueda: %s", g_cfg.animacion ? "activada" : "apagada"); }
+    }
     ImGui::Separator();
     ImGui::TextColored(titleCol, "%s", S(STR_SEC_BOTON));
     ImGui::Separator();
@@ -2117,23 +2124,10 @@ static void DrawSettings(float W, float H) {
         if (PanelSwitch(S(STR_BTN_LOCK), &bloq, H)) { g_cfg.btnBloq = bloq ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.btnBloq ? "bloqueado" : "libre"); }
     }
     {
-        // v2.28: interruptor de iconos a color (carpeta radio_color/)
-        bool color = g_cfg.iconosColor != 0;
-        if (PanelSwitch(S(STR_ICONOSCOLOR), &color, H)) { g_cfg.iconosColor = color ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("iconos de las emisoras: %s", g_cfg.iconosColor ? "a color" : "normales"); }
-        bool lenta = g_cfg.camaraLenta != 0;
-        if (PanelSwitch(S(STR_CAMARALENTA), &lenta, H)) { g_cfg.camaraLenta = lenta ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("camara lenta: %s", g_cfg.camaraLenta ? "activada" : "apagada"); }
+        // v2.55: solo los interruptores del boton (los de la rueda estan en
+        // su seccion; el de iconos propios se quito).
         bool btnVis = g_cfg.botonVisible != 0;
         if (PanelSwitch(S(STR_BOTONVIS), &btnVis, H)) { g_cfg.botonVisible = btnVis ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("boton flotante: %s", g_cfg.botonVisible ? "visible" : "oculto"); }
-        bool genero = g_cfg.mostrarGenero != 0;
-        if (PanelSwitch(S(STR_GENERO), &genero, H)) { g_cfg.mostrarGenero = genero ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("genero en la rueda: %s", g_cfg.mostrarGenero ? "visible" : "oculto"); }
-        bool ocNom = g_cfg.ocultarNombre != 0;
-        if (PanelSwitch(S(STR_OCULTARNOMBRE), &ocNom, H)) { g_cfg.ocultarNombre = ocNom ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("ventana de emisora: %s", g_cfg.ocultarNombre ? "oculta" : "visible"); }
-        bool fIco = g_cfg.fondoIcono != 0;
-        if (PanelSwitch(S(STR_FONDOICONO), &fIco, H)) { g_cfg.fondoIcono = fIco ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("fondo del icono: %s", g_cfg.fondoIcono ? "activado" : "apagado"); }
-        bool anim = g_cfg.animacion != 0;
-        if (PanelSwitch(S(STR_ANIMACION), &anim, H)) { g_cfg.animacion = anim ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("animacion de la rueda: %s", g_cfg.animacion ? "activada" : "apagada"); }
-        bool iProp = g_cfg.iconosPropios != 0;
-        if (PanelSwitch(S(STR_ICONOSPROPIOS), &iProp, H)) { g_cfg.iconosPropios = iProp ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); ReloadIcons(); Log("iconos personalizados: %s", g_cfg.iconosPropios ? "carpeta" : "solo incrustados"); }
     }
     // v2.23: botones en rejilla de 2 columnas con icono (como la imagen)
     {
@@ -2150,7 +2144,7 @@ static void DrawSettings(float W, float H) {
     if (PanelButtonIcon(S(STR_RESET), H, 0.0f, IC_RESET)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.iconosPropios = 1;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
