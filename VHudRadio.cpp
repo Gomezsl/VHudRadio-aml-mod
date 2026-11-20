@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.57.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.58.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -117,6 +117,11 @@
 // v2.57: blur DE VERDAD por reduccion en FBO (la 2.56 no se notaba: solo
 // 12 px de desplazamiento). Desactivar camara y botones del juego con la
 // rueda abierta (interruptor bloquearJuego, por defecto activado).
+// v2.58 PRUEBA (sin clics): PlayClick devuelve de inmediato, sin crear la
+// salida OpenSL del mod. Prueba de Claude: si con esta build nunca falla al
+// cambiar a User Tracks por la rueda (15-20 veces, reiniciando el juego),
+// el culpable es la salida de audio del mod; si sigue fallando, el audio
+// queda descartado y se prueba la forma de llamar a StartRadio.
 // - Interruptores: solo se activan tocando la pastilla, no toda la fila azul.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
@@ -566,9 +571,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.57.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.58.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.57.0-beta"
+#define VHUDRADIO_VERSION "2.58.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -661,6 +666,7 @@ static void SoundWorker() {
 
 // Se llama desde el hilo de render/toque: ya no toca OpenSL, solo avisa al hilo de sonido.
 static void PlayClick(bool hi) {
+    return;  // PRUEBA v2.58: sin sonido de clic, no se crea OpenSL
     if (!g_sndStarted) { g_sndStarted = true; std::thread(SoundWorker).detach(); }
     { std::lock_guard<std::mutex> lk(g_sndMtx); g_clickReq = hi ? 2 : 1; }
     g_sndCv.notify_one();
