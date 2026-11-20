@@ -675,16 +675,6 @@ static const char* kGenre[L_COUNT][14] = {
     { "", "Klassischer Hip-Hop", "Country", "Klassischer Rock", "Funk und Disco", "House", "Hip-Hop", "Alternativer Rock", "R&B und Soul", "Reggae", "Groove und Funk", "Talk und Nachrichten", "Deine eigene Musik", "Radio aus" },
 };
 
-// v2.53: ocultar la ventana de emisora del juego ("User tracks / Your own
-// music" al cambiar). Se engancha CAERadioTrackManager::DisplayRadioStationName
-// y, si el interruptor esta activo, no se llama al original (no se dibuja).
-// Es solo dibujo: no se toca ningun estado de la radio.
-static void (*DisplayRadioStationName_orig)(void* self) = nullptr;
-static void DisplayRadioStationName_hook(void* self) {
-    if (g_cfg.ocultarNombre) return;
-    if (DisplayRadioStationName_orig) DisplayRadioStationName_orig(self);
-}
-
 // ---- funciones del juego (resueltas por GetSym, nunca llamadas si faltan) ----
 static void* (*FindPlayerPed)(int);
 static void* (*FindPlayerVehicle)(int, bool);
@@ -750,6 +740,16 @@ struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 21
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
+// v2.53: ocultar la ventana de emisora del juego ("User tracks / Your own
+// music" al cambiar). Se engancha CAERadioTrackManager::DisplayRadioStationName
+// y, si el interruptor esta activo, no se llama al original (no se dibuja).
+// Es solo dibujo: no se toca ningun estado de la radio. Va aqui (tras g_cfg)
+// porque el hook lee g_cfg.ocultarNombre y antes no existia (error de compilacion).
+static void (*DisplayRadioStationName_orig)(void* self) = nullptr;
+static void DisplayRadioStationName_hook(void* self) {
+    if (g_cfg.ocultarNombre) return;
+    if (DisplayRadioStationName_orig) DisplayRadioStationName_orig(self);
+}
 static bool g_settings = false;   // v2.2: panel de personalizacion abierto
 static bool g_preview = false;    // v2.2: vista previa de la rueda (solo se ve, no cambia la estacion)
 static std::string CfgPath() { return g_gameDataDir + "/configs/VHudRadio.ini"; }  // v2.36: el .ini vuelve a data/configs (v2.3-2.15); la carpeta VHudRadio ya no existe
