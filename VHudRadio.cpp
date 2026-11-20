@@ -1,4 +1,4 @@
-// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.56.0-beta.
+// VHudRadio.cpp - Rueda de radio estilo GTA V para GTA SA Android 2.10 (AML .so), v2.6 2.57.0-beta.
 // Repo aparte: Gomezsl/VHudRadio-aml-mod. ARCX no se toca.
 // Idea: v-hud de PC leia los iconos de VHud\radio\radio_1..13.png sin importarlos.
 // Aqui igual: el plugin lee radio_1.png ... radio_13.png de files del juego (vhud/radio/),
@@ -114,6 +114,9 @@
 // disco en GL) para que no se note el cuadrado. Blur de fondo con barra
 // (experimental): copia del framebuffer dibujada 5 veces con desplazamiento,
 // antes del fondo oscuro; 0 = apagado (por defecto).
+// v2.57: blur DE VERDAD por reduccion en FBO (la 2.56 no se notaba: solo
+// 12 px de desplazamiento). Desactivar camara y botones del juego con la
+// rueda abierta (interruptor bloquearJuego, por defecto activado).
 // - Interruptores: solo se activan tocando la pastilla, no toda la fila azul.
 // v2.49: EL PANEL DEJA TOCAR LOS BOTONES DEL JUEGO DE DETRAS + BARRAS QUE SE MUEVEN
 // - Touch_hook solo observaba: todos los toques llegaban al juego Y a ImGui.
@@ -563,9 +566,9 @@
 #include "stb_image.h"
 #include "icons_embedded.h"  // v2.29: PNGs incrustados en el .so (base64)
 
-MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.56.0-beta, Hunter09)
+MYMODCFG(net.hunter09.vhudradio, VHud Radio Wheel, 2.57.0-beta, Hunter09)
 NEEDGAME(com.rockstargames.gtasa)
-#define VHUDRADIO_VERSION "2.56.0-beta"
+#define VHUDRADIO_VERSION "2.57.0-beta"
 
 // ---- log: VHudRadioLog.txt junto al .ini (en VHudRadio/) ----
 static std::string g_logPath;
@@ -674,14 +677,14 @@ static const char* kStationName[14] = { "", "Playback FM", "K-Rose", "K-DST", "B
 enum LangId { L_ES = 0, L_EN, L_ID, L_PT, L_FR, L_DE, L_COUNT };
 static const char* kLangNames[L_COUNT] = { "Español", "English", "Bahasa Indonesia", "Portugues (BR)", "Francais", "Deutsch" };
 static const char* kLangCodes[L_COUNT] = { "es", "en", "id", "pt", "fr", "de" };
-enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_SEC_RUEDA, STR_SEC_BOTON, STR_GENERO, STR_OCULTARNOMBRE, STR_FONDOICONO, STR_ANIMACION, STR_BLUR, STR_COUNT };  // v2.50: titulos de seccion del panel; v2.53: funciones de Discord; v2.55: sin iconos propios; v2.56: blur de fondo
+enum StrId { STR_TITLE, STR_HINT, STR_FONDO, STR_TAMANO, STR_ANILLO, STR_TEXTO, STR_PREVIEW, STR_RESET, STR_CLOSE, STR_PREVIEW_LABEL, STR_LANG, STR_BTN_SIZE, STR_BTN_OPAC, STR_BTN_LOCK, STR_BTN_RESET_POS, STR_FONDO_LBL, STR_DESLIZA, STR_CREDIT, STR_ICONOSCOLOR, STR_CAMARALENTA, STR_BOTONVIS, STR_SEC_RUEDA, STR_SEC_BOTON, STR_GENERO, STR_OCULTARNOMBRE, STR_FONDOICONO, STR_ANIMACION, STR_BLUR, STR_BLOQUEARJUEGO, STR_COUNT };  // v2.50: titulos de seccion del panel; v2.53: funciones de Discord; v2.55: sin iconos propios; v2.56: blur de fondo; v2.57: bloquear juego
 static const char* kUI[L_COUNT][STR_COUNT] = {
-    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante", "Rueda de radio", "Boton flotante", "Mostrar género en la rueda", "Ocultar ventana de emisora", "Fondo de color del icono", "Animación al abrir la rueda", "Desenfoque de fondo" },
-    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button", "Radio wheel", "Floating button", "Show genre on the wheel", "Hide station pop-up", "Icon background color", "Wheel open animation", "Background blur" },
-    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang", "Roda radio", "Tombol melayang", "Tampilkan genre di roda", "Sembunyikan jendela stasiun", "Warna latar ikon", "Animasi buka roda", "Blur latar belakang" },
-    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante", "Roda de radio", "Botao flutuante", "Mostrar gênero na roda", "Ocultar janela da estação", "Cor de fundo do ícone", "Animação ao abrir a roda", "Desfoque de fundo" },
-    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant", "Roue radio", "Bouton flottant", "Afficher le genre sur la roue", "Masquer la fenêtre de station", "Couleur de fond de l'icône", "Animation d'ouverture de la roue", "Flou d'arrière-plan" },
-    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen", "Radiorad", "Schwebender Button", "Genre auf dem Rad anzeigen", "Stationsfenster ausblenden", "Symbol-Hintergrundfarbe", "Animation beim Öffnen des Rads", "Hintergrundunschärfe" },
+    { "Personalizar rueda de radio", "Fondo, tamano y colores. Se guardan en configs/VHudRadio.ini", "Oscuridad del fondo", "Tamano de la rueda", "Anillo", "Texto del centro", "Vista previa de la rueda", "Restablecer todo", "Cerrar", "VISTA PREVIA", "Idioma", "Tamano del boton", "Opacidad del boton", "Bloquear posicion del boton", "Restablecer posicion del boton", "Fondo", "Desliza para ver más", "rueda de radio GTAV de Hunter09", "Iconos de las emisoras a color", "Camara lenta al abrir la rueda", "Mostrar boton flotante", "Rueda de radio", "Boton flotante", "Mostrar género en la rueda", "Ocultar ventana de emisora", "Fondo de color del icono", "Animación al abrir la rueda", "Desenfoque de fondo", "Bloquear juego con la rueda abierta" },
+    { "Customize radio wheel", "Background, size and colors. Saved in configs/VHudRadio.ini", "Background darkness", "Wheel size", "Ring", "Center text", "Preview the wheel", "Reset all", "Close", "PREVIEW", "Language", "Button size", "Button opacity", "Lock button position", "Reset button position", "Background", "Swipe to see more", "GTAV radio wheel by Hunter09", "Color radio station icons", "Slow motion when opening the wheel", "Show floating button", "Radio wheel", "Floating button", "Show genre on the wheel", "Hide station pop-up", "Icon background color", "Wheel open animation", "Background blur", "Block game input while wheel is open" },
+    { "Sesuaikan roda radio", "Latar, ukuran dan warna. Disimpan di configs/VHudRadio.ini", "Kegelapan latar", "Ukuran roda", "Cincin", "Teks tengah", "Pratinjau roda", "Atur ulang semua", "Tutup", "PRATINJAU", "Bahasa", "Ukuran tombol", "Opasitas tombol", "Kunci posisi tombol", "Atur ulang posisi tombol", "Latar", "Geser untuk melihat lebih banyak", "roda radio GTAV oleh Hunter09", "Ikon stasiun radio berwarna", "Gerakan lambat saat membuka roda", "Tampilkan tombol melayang", "Roda radio", "Tombol melayang", "Tampilkan genre di roda", "Sembunyikan jendela stasiun", "Warna latar ikon", "Animasi buka roda", "Blur latar belakang", "Blokir input game saat roda terbuka" },
+    { "Personalizar roda de radio", "Fundo, tamanho e cores. Salvo em configs/VHudRadio.ini", "Escuridao do fundo", "Tamanho da roda", "Anel", "Texto do centro", "Pre-visualizar a roda", "Redefinir tudo", "Fechar", "PREVIA", "Idioma", "Tamanho do botao", "Opacidade do botao", "Bloquear posicao do botao", "Redefinir posicao do botao", "Fundo", "Deslize para ver mais", "roda de rádio GTAV de Hunter09", "Icones coloridos das estacoes", "Camera lenta ao abrir a roda", "Mostrar botao flutuante", "Roda de radio", "Botao flutuante", "Mostrar gênero na roda", "Ocultar janela da estação", "Cor de fundo do ícone", "Animação ao abrir a roda", "Desfoque de fundo", "Bloquear jogo com a roda aberta" },
+    { "Personnaliser la roue radio", "Fond, taille et couleurs. Enregistre dans configs/VHudRadio.ini", "Obscurite du fond", "Taille de la roue", "Anneau", "Texte central", "Apercu de la roue", "Tout reinitialiser", "Fermer", "APERCU", "Langue", "Taille du bouton", "Opacite du bouton", "Verrouiller la position du bouton", "Reinitialiser la position du bouton", "Fond", "Faites glisser pour voir plus", "roue radio GTAV de Hunter09", "Icones de stations en couleur", "Ralenti a l'ouverture de la roue", "Afficher le bouton flottant", "Roue radio", "Bouton flottant", "Afficher le genre sur la roue", "Masquer la fenêtre de station", "Couleur de fond de l'icône", "Animation d'ouverture de la roue", "Flou d'arrière-plan", "Bloquer le jeu quand la roue est ouverte" },
+    { "Radiorad anpassen", "Hintergrund, Groesse und Farben. Gespeichert in configs/VHudRadio.ini", "Hintergrund-Dunkelheit", "Radgroesse", "Ring", "Mitteltext", "Rad-Vorschau", "Alles zuruecksetzen", "Schliessen", "VORSCHAU", "Sprache", "Buttongroesse", "Button-Deckkraft", "Buttonposition sperren", "Buttonposition zuruecksetzen", "Hintergrund", "Wischen, um mehr zu sehen", "GTAV-Radiorad von Hunter09", "Farbige Radiosender-Symbole", "Zeitlupe beim Oeffnen des Rades", "Schwebenden Button anzeigen", "Radiorad", "Schwebender Button", "Genre auf dem Rad anzeigen", "Stationsfenster ausblenden", "Symbol-Hintergrundfarbe", "Animation beim Öffnen des Rads", "Hintergrundunschärfe", "Spiel sperren, während das Rad offen ist" },
 };
 // v2.0: genero de cada estacion, para el centro de la rueda estilo GTA V
 static const char* kGenre[L_COUNT][14] = {
@@ -754,7 +757,7 @@ static void LoadHornPos() {
 //   (posicion del panel, fraccion de W/H; -1 = centrado) panelAncho=0.44
 //   (ancho del panel, fraccion de W, 0.36..0.70) (v2.17)
 // iconosColor=0 (0 = iconos normales de radio/, 1 = iconos a color de radio_color/) (v2.28)
-struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; int blur = 0; };
+struct WheelCfg { int fondo = 30; int tamano = 36; int ringR = 0; int ringG = 210; int ringB = 255; int textoR = 255; int textoG = 255; int textoB = 255; int idioma = 0; float btnX = -1.0f; float btnY = -1.0f; int btnTam = 100; int btnOpac = 100; int btnBloq = 0; int fondoR = 0; int fondoG = 0; int fondoB = 0; float panelX = -1.0f; float panelY = -1.0f; float panelAncho = 0.44f; float panelAlto = -1.0f; int iconosColor = 0; int camaraLenta = 1; int botonVisible = 1; int mostrarGenero = 1; int ocultarNombre = 0; int fondoIcono = 0; int fondoIconoR = 20; int fondoIconoG = 40; int fondoIconoB = 80; int animacion = 1; int blur = 0; int bloquearJuego = 1; };
 static WheelCfg g_cfg;
 static const char* S(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 0 || id >= STR_COUNT) return ""; return kUI[l][id]; }  // v2.16: texto del panel en el idioma elegido
 static const char* Genre(int id) { int l = g_cfg.idioma; if (l < 0 || l >= L_COUNT) l = 0; if (id < 1 || id > 13) return ""; return kGenre[l][id]; }  // v2.16: genero en el idioma elegido
@@ -800,10 +803,11 @@ static void SaveCfg() {
     fprintf(f, "fondoIconoColor=%d,%d,%d\n", g_cfg.fondoIconoR, g_cfg.fondoIconoG, g_cfg.fondoIconoB);
     fprintf(f, "animacion=%d\n", g_cfg.animacion);
     fprintf(f, "blur=%d\n", g_cfg.blur);
+    fprintf(f, "bloquearJuego=%d\n", g_cfg.bloquearJuego);
     fclose(f);
 }
 static void LoadCfg() {
-    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0;
+    g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255; g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0; g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1;
     bool fromOld = false;
     FILE* f = fopen(CfgPath().c_str(), "r");
     if (!f) {
@@ -868,6 +872,7 @@ static void LoadCfg() {
         }
         else if (strcmp(k, "animacion") == 0) g_cfg.animacion = atoi(v);
         else if (strcmp(k, "blur") == 0) g_cfg.blur = atoi(v);
+        else if (strcmp(k, "bloquearJuego") == 0) g_cfg.bloquearJuego = atoi(v);
     }
     fclose(f);
     if (g_cfg.fondo < 0) g_cfg.fondo = 0; if (g_cfg.fondo > 100) g_cfg.fondo = 100;
@@ -902,6 +907,7 @@ static void LoadCfg() {
     if (g_cfg.fondoIconoB < 0) g_cfg.fondoIconoB = 0; if (g_cfg.fondoIconoB > 255) g_cfg.fondoIconoB = 255;
     if (g_cfg.animacion != 0 && g_cfg.animacion != 1) g_cfg.animacion = 1;
     if (g_cfg.blur < 0) g_cfg.blur = 0; if (g_cfg.blur > 100) g_cfg.blur = 100;
+    if (g_cfg.bloquearJuego != 0 && g_cfg.bloquearJuego != 1) g_cfg.bloquearJuego = 1;
     // v2.20: el tamano por defecto vuelve a ser mediano (0.44 x automatico);
     // un .ini con los valores grandes de la v2.19 (0.60 x 0.90, nunca se
     // redimensiono o se restablecio en la v2.19) vuelve al mediano
@@ -1186,6 +1192,7 @@ struct TouchEv { int kind; float x, y; };
 static std::vector<TouchEv> g_evs;
 static bool g_cap = false;
 static uintptr_t (*Touch_orig)(int, int, int, int);
+static bool g_touchForWheel = false;  // v2.57: el toque es de la rueda (el juego no lo ve)
 static uintptr_t Touch_hook(int type, int idx, int x, int y) {
     bool down = (type == 2), up = (type == 1 || type == 4);
     if (idx == 0) {
@@ -1203,6 +1210,12 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
                           (float)y >= g_panelRectY && (float)y <= g_panelRectY + g_panelRectH;
             }
             g_touchForPanel = inPanel;
+            // v2.57: con la rueda abierta (y no el panel), el toque es de la
+            // rueda: el juego no lo ve, asi no se mueve la camara ni
+            // responden los botones del juego. El doble toque del claxon
+            // sigue funcionando porque se detecta por POSICION en g_evs
+            // (DrawFrame), no por el juego. El dueno se decide al bajar.
+            g_touchForWheel = (!inPanel && g_open && g_cfg.bloquearJuego);
         }
         bool forPanel = g_touchForPanel;
         std::lock_guard<std::mutex> lk(g_inMtx);
@@ -1219,8 +1232,9 @@ static uintptr_t Touch_hook(int type, int idx, int x, int y) {
         // v2.49: con el panel abierto el mover solo llega si el toque es del panel;
         // si es del juego (fuera del panel) no se encola.
         else if (forPanel || g_open || g_cap || g_preview || g_btnDrag) { g_evs.push_back({0, (float)x, (float)y}); }
-        if (up) g_touchForPanel = false;
+        if (up) { g_touchForPanel = false; g_touchForWheel = false; }
         if (forPanel) return 0;  // consumido por el panel: el juego no lo ve
+        if (g_touchForWheel) return 0;  // v2.57: consumido por la rueda: el juego no lo ve
     }
     return Touch_orig ? Touch_orig(type, idx, x, y) : 0;
 }
@@ -1546,40 +1560,136 @@ static bool DrawButtonGL(float W, float H) {
     return true;
 }
 
-// v2.56: BLUR DE FONDO (experimental). Copia la escena del juego a una
-// textura y la dibuja 5 veces con pequenos desplazamientos, mezcladas por
-// alfa, para suavizarla detras de la rueda. Se llama desde DrawWheel con la
-// rueda abierta, antes del rectangulo oscuro (que la oscurece como siempre).
-// La copia sale invertida en Y, asi que las UVs van al reves (0,1)-(1,0).
-// 0 = apagado (por defecto). Cuesta una copia de pantalla por cuadro.
-static GLuint g_blurTex = 0;
-static int g_blurTW = 0, g_blurTH = 0;
+// v2.57: BLUR DE FONDO POR REDUCCION (FBO). La 2.56 no se notaba nada al
+// 100%: mezclaba 5 copias con solo 12 px de desplazamiento, imperceptible
+// en 2408 px. Ahora: se copia el framebuffer a una textura, se reduce a una
+// textura pequena (4x/8x/16x segun la barra) dibujandola en un FBO con el
+// programa del boton, y se amplifica a pantalla completa con filtro lineal:
+// eso SI se ve borroso. La barra 0-100 sigue igual (0 = apagado, 1-33 = 4x
+// suave, 34-66 = 8x medio, 67-100 = 16x fuerte). Si el FBO no esta
+// completo, no hay blur (solo el fondo oscuro). Cuesta una copia + 2 quads
+// por cuadro con la rueda abierta. Las UVs van invertidas en Y (la copia
+// del framebuffer sale al reves). Se dibuja con GL directo (no ImGui) antes
+// de que ImGui pinte el fondo oscuro y la rueda.
+static GLuint g_blurCopyTex = 0, g_blurSmallTex = 0, g_blurFBO = 0;
+static int g_blurCW = 0, g_blurCH = 0, g_blurSW = 0, g_blurSH = 0, g_blurFactor = 0;
+static int BlurFactor() {
+    if (g_cfg.blur <= 0) return 0;
+    if (g_cfg.blur <= 33) return 4;
+    if (g_cfg.blur <= 66) return 8;
+    return 16;
+}
 static void BlurDrawBackground(float W, float H) {
-    if (g_cfg.blur <= 0) return;
+    int factor = BlurFactor();
+    if (factor <= 0) return;
     int w = (int)W, h = (int)H;
     if (w <= 0 || h <= 0) return;
-    if (!g_blurTex || g_blurTW != w || g_blurTH != h) {
-        if (g_blurTex) { glDeleteTextures(1, &g_blurTex); g_blurTex = 0; }
-        glGenTextures(1, &g_blurTex);
-        glBindTexture(GL_TEXTURE_2D, g_blurTex);
+    if (!GLBtnInit()) return;
+    int sw = w / factor, sh = h / factor;
+    if (sw < 8) sw = 8; if (sh < 8) sh = 8;
+    if (!g_blurCopyTex || g_blurCW != w || g_blurCH != h || !g_blurSmallTex || g_blurSW != sw || g_blurSH != sh || g_blurFactor != factor || !g_blurFBO) {
+        if (g_blurFBO) { glDeleteFramebuffers(1, &g_blurFBO); g_blurFBO = 0; }
+        if (g_blurCopyTex) { glDeleteTextures(1, &g_blurCopyTex); g_blurCopyTex = 0; }
+        if (g_blurSmallTex) { glDeleteTextures(1, &g_blurSmallTex); g_blurSmallTex = 0; }
+        glGenTextures(1, &g_blurCopyTex);
+        glBindTexture(GL_TEXTURE_2D, g_blurCopyTex);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        g_blurTW = w; g_blurTH = h;
+        glGenTextures(1, &g_blurSmallTex);
+        glBindTexture(GL_TEXTURE_2D, g_blurSmallTex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sw, sh, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glGenFramebuffers(1, &g_blurFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_blurFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_blurSmallTex, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            Log("  !! blur: FBO incompleto, sin desenfoque");
+            glDeleteFramebuffers(1, &g_blurFBO); g_blurFBO = 0;
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        g_blurCW = w; g_blurCH = h; g_blurSW = sw; g_blurSH = sh; g_blurFactor = factor;
     }
-    GLint prevTex = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
-    glBindTexture(GL_TEXTURE_2D, g_blurTex);
+    // guardar estado GL del juego
+    GLint prevProg = 0, prevTex = 0, prevArr = 0, prevElem = 0, prevActive = 0, prevFB = 0, prevVAO = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArr);
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElem);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFB);
+    if (g_glBtnUseVAO) glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
+    GLboolean prevBlend = glIsEnabled(GL_BLEND);
+    GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
+    GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+    // 1. copiar la escena del juego a g_blurCopyTex (framebuffer por defecto)
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, g_blurCopyTex);
     glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, w, h, 0);
+    if (glGetError() != GL_NO_ERROR) goto blur_restore;
+    // preparar el programa del boton (proyeccion ortografica, Y hacia abajo)
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (g_glBtnUseVAO) g_pBindVA(g_glBtnVAO);
+    else {
+        glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
+        glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)8);
+        glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(GLBtnVert), (void*)16);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glUseProgram(g_glBtnProg);
+    glUniform1i(g_glBtnUTex, 0);
+    // quad a pantalla completa (x0,y0)-(x1,y1), UV invertida en Y, blanco opaco
+    {
+        auto drawQuad = [&](GLuint tex, float x0, float y0, float x1, float y1, const float* proj) {
+            GLBtnVert q[6] = {
+                {x0, y0, 0.0f, 1.0f, 1,1,1,1}, {x1, y0, 1.0f, 1.0f, 1,1,1,1}, {x1, y1, 1.0f, 0.0f, 1,1,1,1},
+                {x0, y0, 0.0f, 1.0f, 1,1,1,1}, {x1, y1, 1.0f, 0.0f, 1,1,1,1}, {x0, y1, 0.0f, 0.0f, 1,1,1,1},
+            };
+            glUniformMatrix4fv(g_glBtnUProj, 1, GL_FALSE, proj);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glBindBuffer(GL_ARRAY_BUFFER, g_glBtnVBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        };
+        float projS[16] = {0}, projF[16] = {0};
+        projS[0] = 2.0f / sw; projS[5] = -2.0f / sh; projS[10] = -1.0f; projS[12] = -1.0f; projS[13] = 1.0f; projS[15] = 1.0f;
+        projF[0] = 2.0f / w; projF[5] = -2.0f / h; projF[10] = -1.0f; projF[12] = -1.0f; projF[13] = 1.0f; projF[15] = 1.0f;
+        // 2. reducir: dibujar la copia en el FBO (textura pequena = borrosa)
+        glBindFramebuffer(GL_FRAMEBUFFER, g_blurFBO);
+        glViewport(0, 0, sw, sh);
+        drawQuad(g_blurCopyTex, 0, 0, (float)sw, (float)sh, projS);
+        // 3. ampliar: dibujar la textura pequena en el framebuffer por defecto
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, w, h);
+        drawQuad(g_blurSmallTex, 0, 0, (float)w, (float)h, projF);
+    }
+blur_restore:
+    // restaurar estado
+    if (g_glBtnUseVAO) g_pBindVA((GLuint)prevVAO);
+    else { glDisableVertexAttribArray(0); glDisableVertexAttribArray(1); glDisableVertexAttribArray(2); }
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFB);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevArr);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)prevElem);
     glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
-    if (glGetError() != GL_NO_ERROR) return;
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    float r = g_cfg.blur * 0.12f;  // radio en px (0-12 px)
-    struct Tap { float dx, dy, a; };
-    const Tap taps[5] = { {0, 0, 0.40f}, {-r, 0, 0.15f}, {r, 0, 0.15f}, {0, -r, 0.15f}, {0, r, 0.15f} };
-    for (const Tap& t : taps)
-        dl->AddImage((ImTextureID)(uintptr_t)g_blurTex, ImVec2(t.dx, t.dy), ImVec2(W + t.dx, H + t.dy), ImVec2(0, 1), ImVec2(1, 0), IM_COL32(255, 255, 255, (int)(255 * t.a)));
+    glActiveTexture((GLenum)prevActive);
+    glUseProgram((GLuint)prevProg);
+    if (prevBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    if (prevScissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
+    if (prevDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
 }
 
 static void DrawWheel(float W, float H) {
@@ -2154,6 +2264,8 @@ static void DrawSettings(float W, float H) {
         if (PanelSwitch(S(STR_FONDOICONO), &fIco, H)) { g_cfg.fondoIcono = fIco ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); ReloadIcons(); Log("fondo del icono: %s", g_cfg.fondoIcono ? "activado" : "apagado"); }
         bool anim = g_cfg.animacion != 0;
         if (PanelSwitch(S(STR_ANIMACION), &anim, H)) { g_cfg.animacion = anim ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("animacion de la rueda: %s", g_cfg.animacion ? "activada" : "apagada"); }
+        bool bloqJ = g_cfg.bloquearJuego != 0;
+        if (PanelSwitch(S(STR_BLOQUEARJUEGO), &bloqJ, H)) { g_cfg.bloquearJuego = bloqJ ? 1 : 0; g_cfgDirty = false; SaveCfg(); PlayClick(false); Log("bloquear juego con la rueda abierta: %s", g_cfg.bloquearJuego ? "activado" : "apagado"); }
     }
     ImGui::Separator();
     ImGui::TextColored(titleCol, "%s", S(STR_SEC_BOTON));
@@ -2207,7 +2319,7 @@ static void DrawSettings(float W, float H) {
     if (PanelButtonIcon(S(STR_RESET), H, 0.0f, IC_RESET)) {
         g_cfg.fondo = 30; g_cfg.tamano = 36; g_cfg.ringR = 0; g_cfg.ringG = 210; g_cfg.ringB = 255; g_cfg.textoR = 255; g_cfg.textoG = 255; g_cfg.textoB = 255;
         g_cfg.idioma = 0; g_cfg.btnX = -1.0f; g_cfg.btnY = -1.0f; g_cfg.btnTam = 100; g_cfg.btnOpac = 100; g_cfg.btnBloq = 0;
-        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0;
+        g_cfg.fondoR = 0; g_cfg.fondoG = 0; g_cfg.fondoB = 0; g_cfg.panelX = -1.0f; g_cfg.panelY = -1.0f; g_cfg.panelAncho = 0.44f; g_cfg.panelAlto = -1.0f; g_cfg.iconosColor = 0; g_cfg.camaraLenta = 1; g_cfg.botonVisible = 1; g_cfg.mostrarGenero = 1; g_cfg.ocultarNombre = 0; g_cfg.fondoIcono = 0; g_cfg.fondoIconoR = 20; g_cfg.fondoIconoG = 40; g_cfg.fondoIconoB = 80; g_cfg.animacion = 1; g_cfg.blur = 0; g_cfg.bloquearJuego = 1;
         g_cfgDirty = false; SaveCfg();
         Log("ajustes restablecidos");
     }
